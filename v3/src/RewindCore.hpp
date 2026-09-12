@@ -50,6 +50,21 @@ public:
     float VisualIntensity() const { return m_visualIntensity; }
     std::size_t CurrentEntityCount() const;
 
+    // Read-only rendering hooks. FX gets historical samples but never owns,
+    // mutates, or retains them beyond the current draw call.
+    const WorldFrame* FxCurrentFrame() const {
+        return m_phase == RewindPhase::Rewinding ? m_timeline.Current() : nullptr;
+    }
+    const WorldFrame* FxOlderFrame() const {
+        return m_phase == RewindPhase::Rewinding ? m_timeline.PeekStepBack() : nullptr;
+    }
+    float FxInterpolation01() const {
+        if (m_phase != RewindPhase::Rewinding) return 0.0f;
+        if (m_rewindPhase <= 0.0) return 0.0f;
+        if (m_rewindPhase >= 1.0) return 1.0f;
+        return static_cast<float>(m_rewindPhase);
+    }
+
 private:
     using Clock = std::chrono::steady_clock;
     void Record(double dt);
