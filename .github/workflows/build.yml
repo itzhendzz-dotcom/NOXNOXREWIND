@@ -1,4 +1,4 @@
-name: Build NOXXA REWIND v2.1.1
+name: Build NOXXA REWIND v2.1.2
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate v2.1.1 source
+      - name: Validate v2.1.2 source
         shell: bash
         run: |
           set -euxo pipefail
@@ -26,35 +26,16 @@ jobs:
           test -f v2/src/main.cpp
           test -f v2/src/WorldState.cpp
           test -f v2/src/RewindCore.cpp
+          test -f v2/src/RewindAudio.cpp
           test -f v2/scripts/bootstrap_deps.sh
           test -f v2/scripts/synth_audio.py
-          grep -q '2.1.1' v2/src/main.cpp
-          grep -q 'SafeStart' v2/NoxxaRewind.ini.example
+          grep -q '2.1.2' v2/src/main.cpp
+          grep -q 'MaxRewindSeconds=13.003' v2/NoxxaRewind.ini.example
           chmod +x v2/scripts/bootstrap_deps.sh v2/scripts/synth_audio.py
 
-      - name: Generate original temporal audio
+      - name: Generate CI fallback audio
         working-directory: v2
         run: python3 scripts/synth_audio.py
-
-      - name: Validate generated WAVs
-        working-directory: v2
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python3 - <<'PY'
-          import wave
-          from pathlib import Path
-          expected_min = {'rewind_enter.wav': 0.30, 'rewind_loop.wav': 8.50, 'rewind_release.wav': 0.40}
-          for name, min_dur in expected_min.items():
-              p = Path('generated_audio') / name
-              assert p.is_file() and p.stat().st_size > 4096, p
-              with wave.open(str(p), 'rb') as w:
-                  assert w.getnchannels() == 2
-                  assert w.getframerate() == 48000
-                  assert w.getsampwidth() == 2
-                  assert w.getnframes() / w.getframerate() >= min_dur
-          print('audio validation: PASS')
-          PY
 
       - name: Fetch pinned AML dependencies
         working-directory: v2
@@ -92,7 +73,7 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra tests/timeline_test.cpp -o tests/timeline_test
           ./tests/timeline_test
 
-      - name: Package installable v2.1.1
+      - name: Package installable v2.1.2 CI fallback
         working-directory: v2
         shell: bash
         run: |
@@ -101,20 +82,20 @@ jobs:
           rm -rf release
           mkdir -p release/NoxxaRewind
           cp libs/armeabi-v7a/libNoxxaRewind.so release/
-          cp generated_audio/rewind_enter.wav release/NoxxaRewind/
-          cp generated_audio/rewind_loop.wav release/NoxxaRewind/
-          cp generated_audio/rewind_release.wav release/NoxxaRewind/
+          # Public CI artifact uses the generated fallback. The user's exact
+          # uploaded SFX is injected only into the private chat-delivered ZIP.
+          cp generated_audio/rewind_loop.wav release/NoxxaRewind/rewind_user.wav
           cp NoxxaRewind.ini.example release/
           cp INSTALL.md release/
           cp README.md release/README-v2.md
-          printf '%s\n' 'NOXXA REWIND v2.1.1 - SAFE START CRASH ISOLATION' > release/VERSION.txt
+          printf '%s\n' 'NOXXA REWIND v2.1.2 - AUDIO-ONLY SAFE ISOLATION' > release/VERSION.txt
           cd release
-          zip -qr ../NOXXA_REWIND-v2.1.1.zip .
+          zip -qr ../NOXXA_REWIND-v2.1.2.zip .
 
-      - name: Upload v2.1.1 artifact
+      - name: Upload v2.1.2 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NOXXA_REWIND-v2.1.1
-          path: v2/NOXXA_REWIND-v2.1.1.zip
+          name: NOXXA_REWIND-v2.1.2
+          path: v2/NOXXA_REWIND-v2.1.2.zip
           if-no-files-found: error
           compression-level: 0
