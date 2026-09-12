@@ -12,13 +12,13 @@ namespace noxxa {
 
 void RewindCore::Init(const RewindSettings& settings, RewindAudio* audio) {
     m_settings = settings;
-    m_settings.historySeconds = std::clamp(m_settings.historySeconds, 2.0f, 15.0f);
-    m_settings.snapshotHz = std::clamp(m_settings.snapshotHz, 15, 60);
-    m_settings.rewindSpeed = std::clamp(m_settings.rewindSpeed, 0.5f, 3.0f);
+    m_settings.historySeconds = std::clamp(m_settings.historySeconds, 2.0f, 12.0f);
+    m_settings.snapshotHz = std::clamp(m_settings.snapshotHz, 15, 45);
+    m_settings.rewindSpeed = std::clamp(m_settings.rewindSpeed, 0.5f, 2.5f);
     m_settings.quickSeconds = std::clamp(m_settings.quickSeconds, 0.5f, m_settings.historySeconds);
-    m_settings.radius = std::clamp(m_settings.radius, 10.0f, 90.0f);
+    m_settings.radius = std::clamp(m_settings.radius, 10.0f, 75.0f);
     m_settings.maxEntities = std::clamp(m_settings.maxEntities, 4, static_cast<int>(kHardMaxWorldEntities));
-    m_settings.rewindTimeScale = std::clamp(m_settings.rewindTimeScale, 0.01f, 0.25f);
+    m_settings.rewindTimeScale = std::clamp(m_settings.rewindTimeScale, 0.08f, 0.35f);
 
     const auto capacity = static_cast<std::size_t>(std::ceil(m_settings.historySeconds * m_settings.snapshotHz)) + 2;
     m_timeline.SetCapacity(capacity);
@@ -35,7 +35,6 @@ void RewindCore::Init(const RewindSettings& settings, RewindAudio* audio) {
 
 void RewindCore::BeforeGameProcess() {
     if (!m_rewinding) return;
-
     CTimer::ms_fTimeScale = m_settings.rewindTimeScale;
     m_world.QuiescePlayer();
     m_world.QuiesceWorld(m_timeline.Current());
@@ -49,17 +48,17 @@ void RewindCore::Tick(bool holdDown, bool released, bool doubleTapped) {
 
     if (!m_rewinding) {
         Record(dt);
-
-        if (doubleTapped) {
-            BeginRewind(true);
-        } else if (holdDown) {
-            BeginRewind(false);
-        }
+        if (doubleTapped) BeginRewind(true);
+        else if (holdDown) BeginRewind(false);
     }
 
     if (m_rewinding) {
-        m_world.ApplyAnchor(m_anchor);
-        ProcessRewind(dt, holdDown, released);
+        if (!m_anchor.valid || m_world.IsPlayerInVehicle()) {
+            EndRewind(false);
+        } else {
+            m_world.ApplyAnchor(m_anchor);
+            ProcessRewind(dt, holdDown, released);
+        }
     }
 
     UpdateVisualIntensity(dt);
@@ -71,16 +70,13 @@ void RewindCore::Record(double dt) {
     m_recordAccumulator += dt;
 
     int captures = 0;
-    while (m_recordAccumulator >= period && captures < 3) {
+    while (m_recordAccumulator >= period && captures < 2) {
         WorldFrame frame{};
         if (m_world.CaptureWorld(frame, ++m_sequence)) m_timeline.Push(frame);
         m_recordAccumulator -= period;
         ++captures;
     }
-
-    if (captures == 3 && m_recordAccumulator > period * 3.0) {
-        m_recordAccumulator = 0.0;
-    }
+    if (captures == 2 && m_recordAccumulator > period * 2.0) m_recordAccumulator = 0.0;
 }
 
 bool RewindCore::BeginRewind(bool quickMode) {
@@ -108,7 +104,7 @@ bool RewindCore::BeginRewind(bool quickMode) {
     CTimer::ms_fTimeScale = m_settings.rewindTimeScale;
 
     if (m_audio) m_audio->StartRewind();
-    if (m_settings.haptics && aml) aml->DoVibro(18);
+    if (m_settings.haptics && aml) aml->DoVibro(14);
     return true;
 }
 
@@ -116,10 +112,7 @@ void RewindCore::ApplyInterpolatedCurrent() {
     const WorldFrame* newer = m_timeline.Current();
     const WorldFrame* older = m_timeline.PeekStepBack();
     if (!newer) return;
-
-    if (older) {
-        m_world.ApplyWorldInterpolated(*newer, *older, static_cast<float>(m_rewindPhase));
-    }
+    if (older) m_world.ApplyWorldInterpolated(*newer, *older, static_cast<float>(m_rewindPhase));
     m_world.ApplyAnchor(m_anchor);
 }
 
@@ -137,11 +130,11 @@ void RewindCore::ProcessRewind(double dt, bool holdDown, bool released) {
         }
     }
 
-    const double framesPerSecond = static_cast<double>(m_settings.snapshotHz) * static_cast<double>(m_settings.rewindSpeed);
-    m_rewindPhase += dt * framesPerSecond;
+    const double fps = static_cast<double>(m_settings.snapshotHz) * static_cast<double>(m_settings.rewindSpeed);
+    m_rewindPhase += dt * fps;
 
     int boundaries = 0;
-    while (m_rewindPhase >= 1.0 && boundaries < 8) {
+    while (m_rewindPhase >= 1.0 && boundaries < 6) {
         if (!m_timeline.CanStepBack()) {
             m_rewindPhase = 0.0;
             EndRewind(true);
@@ -168,8 +161,6 @@ void RewindCore::EndRewind(bool commit) {
     if (!m_rewinding) return;
 
     ApplyInterpolatedCurrent();
-    m_world.ApplyAnchor(m_anchor);
-
     if (commit) m_timeline.CommitRewind();
     else m_timeline.CancelRewind();
 
@@ -179,11 +170,11 @@ void RewindCore::EndRewind(bool commit) {
     }
 
     CTimer::ms_fTimeScale = m_savedTimeScale;
-    m_world.EndAnchorPose();
     if (m_anchor.valid) {
         m_world.ApplyAnchor(m_anchor);
         if (CPed* ped = CPools::GetPed(m_anchor.pedRef)) ped->bUsesCollision = m_anchor.collisionEnabled;
     }
+    m_world.EndAnchorPose();
 
     m_rewinding = false;
     m_quickMode = false;
@@ -191,14 +182,15 @@ void RewindCore::EndRewind(bool commit) {
     m_quickRemainingSeconds = 0.0;
     m_recordAccumulator = 0.0;
     m_anchor = {};
+    m_lastTick = Clock::now();
 
     if (m_audio) m_audio->StopWithRelease();
-    if (m_settings.haptics && aml) aml->DoVibro(12);
+    if (m_settings.haptics && aml) aml->DoVibro(8);
 }
 
 void RewindCore::UpdateVisualIntensity(double dt) {
     const float target = m_rewinding ? 1.0f : 0.0f;
-    const float speed = m_rewinding ? 8.0f : 4.5f;
+    const float speed = m_rewinding ? 6.0f : 5.5f;
     const float step = static_cast<float>(dt) * speed;
     if (m_visualIntensity < target) m_visualIntensity = std::min(target, m_visualIntensity + step);
     else if (m_visualIntensity > target) m_visualIntensity = std::max(target, m_visualIntensity - step);
