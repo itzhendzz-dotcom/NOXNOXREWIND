@@ -9,9 +9,10 @@
 #include "RewindUI.hpp"
 #include "TemporalFX.hpp"
 
+#include <algorithm>
 #include <string>
 
-MYMODCFG(net.noxxa.rewind, NOXXA REWIND, 2.1.1, henn)
+MYMODCFG(net.noxxa.rewind, NOXXA REWIND, 2.1.2, henn)
 NEEDGAME(com.rockstargames.gtasa)
 
 BEGIN_DEPLIST()
@@ -36,25 +37,36 @@ std::string JoinPath(const char* root, const char* suffix) {
 
 ON_MOD_LOAD()
 {
-    logger->SetTag("NOXXA REWIND v2.1.1");
+    logger->SetTag("NOXXA REWIND v2.1.2");
 
 #ifndef AML32
-    logger->Error("v2.1.1 currently targets GTA SA v2.00 / armeabi-v7a.");
-    aml->ShowToast(true, "NOXXA REWIND v2.1.1: 32-bit GTA SA v2.00 required");
+    logger->Error("v2.1.2 currently targets GTA SA v2.00 / armeabi-v7a.");
+    aml->ShowToast(true, "NOXXA REWIND v2.1.2: 32-bit GTA SA v2.00 required");
     return;
 #endif
 
+    const std::string assetDir = JoinPath(aml->GetAndroidDataRootPath(), "mods/NoxxaRewind");
+    const std::string rewindWav = JoinPath(assetDir.c_str(), "rewind_user.wav");
+
+    const bool audioReady = g_audio.Init(rewindWav);
+    if (!audioReady) {
+        logger->Error("User rewind audio failed to load: %s", rewindWav.c_str());
+    }
+
+    const float clipDuration = audioReady ? g_audio.DurationSeconds() : 13.003f;
+
     noxxa::RewindSettings settings{};
-    settings.historySeconds = cfg->GetFloat("HistorySeconds", 8.0f, "Rewind");
+    settings.maxRewindSeconds = cfg->GetFloat("MaxRewindSeconds", clipDuration, "Rewind");
+    settings.historySeconds = cfg->GetFloat("HistorySeconds", std::max(13.25f, settings.maxRewindSeconds + 0.25f), "Rewind");
     settings.snapshotHz = cfg->GetInt("SnapshotHz", 24, "Rewind");
-    settings.rewindSpeed = cfg->GetFloat("RewindSpeed", 1.25f, "Rewind");
+    settings.rewindSpeed = cfg->GetFloat("RewindSpeed", 1.0f, "Rewind");
     settings.quickSeconds = cfg->GetFloat("QuickRewindSeconds", 3.0f, "Rewind");
     settings.radius = cfg->GetFloat("Radius", 38.0f, "World");
     settings.maxEntities = cfg->GetInt("MaxEntities", 32, "World");
     settings.rewindTimeScale = cfg->GetFloat("TimeScale", 0.12f, "World");
     settings.restoreWorldHealth = cfg->GetBool("RestoreHealth", false, "World");
-    settings.haptics = cfg->GetBool("Haptics", true, "Effects");
-    settings.safeStart = cfg->GetBool("SafeStart", true, "Debug");
+    settings.haptics = cfg->GetBool("Haptics", false, "Effects");
+    settings.safeStart = true; // lock safe-start on for this isolation build
     settings.poseAnim = cfg->GetString("PoseAnim", "IDLE_TAXI", "Anchor");
     settings.poseIfp = cfg->GetString("PoseIFP", "PED", "Anchor");
 
@@ -62,17 +74,8 @@ ON_MOD_LOAD()
     const float buttonY = cfg->GetFloat("ButtonY", 0.62f, "UI");
     const float buttonScale = cfg->GetFloat("ButtonScale", 1.0f, "UI");
 
-    const std::string assetDir = JoinPath(aml->GetAndroidDataRootPath(), "mods/NoxxaRewind");
-    const std::string enterWav = JoinPath(assetDir.c_str(), "rewind_enter.wav");
-    const std::string bedWav = JoinPath(assetDir.c_str(), "rewind_loop.wav");
-    const std::string releaseWav = JoinPath(assetDir.c_str(), "rewind_release.wav");
-
-    if (!g_audio.Init(enterWav, bedWav, releaseWav)) {
-        logger->Error("Temporal audio failed to load. Rewind core will continue without it.");
-    }
-
     g_ui.Init(buttonX, buttonY, buttonScale);
-    g_core.Init(settings, &g_audio);
+    g_core.Init(settings, audioReady ? &g_audio : nullptr);
 
     Events::gameProcessEvent.before += []() { g_core.BeforeGameProcess(); };
     Events::gameProcessEvent.after += []() {
@@ -85,8 +88,7 @@ ON_MOD_LOAD()
     Events::drawAfterFadeEvent.after += []() { g_fx.Draw(g_core); };
     Events::drawHudEvent.after += []() { g_ui.DrawButton(g_core); };
 
-    logger->Info("Loaded v2.1.1 safe-start build: %.1fs @ %dHz, radius %.1fm, max %d entities, safe=%d",
-                 settings.historySeconds, settings.snapshotHz, settings.radius, settings.maxEntities,
-                 settings.safeStart ? 1 : 0);
-    aml->ShowToast(false, "NOXXA REWIND v2.1.1 loaded - safe start ON");
+    logger->Info("Loaded v2.1.2 audio-only isolation: clip %.3fs, history %.2fs @ %dHz, rewind %.2fx",
+                 clipDuration, settings.historySeconds, settings.snapshotHz, settings.rewindSpeed);
+    aml->ShowToast(false, "NOXXA REWIND v2.1.2 loaded - 13s SFX sync");
 }
