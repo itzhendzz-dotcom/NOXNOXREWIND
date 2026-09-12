@@ -5,6 +5,10 @@
 #include <cstdint>
 #include <math.h>
 #include <float.h>
+
+// aml-psdk requires the game plugin selector to be included before any
+// gta_base / RenderWare header. Keep this first to avoid sdk_base hard-fail.
+#include <aml-psdk/game_sa/plugin.h>
 #include <aml-psdk/gta_base/Vector.h>
 
 class CPhysical;
