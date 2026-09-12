@@ -9,16 +9,16 @@
 #include <aml-psdk/game_sa/utils/OpcodeCaller.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
-#include <vector>
 
 namespace noxxa {
 namespace {
 
 struct Candidate {
-    EntityKind kind;
-    int32_t ref;
-    float dist2;
+    EntityKind kind{EntityKind::Ped};
+    int32_t ref{-1};
+    float dist2{0.0f};
 };
 
 float DistanceSq(const CVector& a, const CVector& b) {
@@ -36,15 +36,15 @@ float Clamp01(float v) {
 
 void WorldStateAdapter::Configure(const WorldCaptureSettings& settings) {
     m_settings = settings;
-    m_settings.radius = std::max(10.0f, std::min(90.0f, m_settings.radius));
+    m_settings.radius = std::max(10.0f, std::min(75.0f, m_settings.radius));
     m_settings.maxEntities = std::max<std::size_t>(4, std::min<std::size_t>(kHardMaxWorldEntities, m_settings.maxEntities));
 }
 
 CVector WorldStateAdapter::GetPhysicalPosition(const CPhysical* physical) {
     if (!physical) return CVector{};
-    auto* mutablePhysical = const_cast<CPhysical*>(physical);
-    if (CMatrix* matrix = mutablePhysical->GetMatrix()) return matrix->pos;
-    return mutablePhysical->m_placement.m_vPosn;
+    auto* p = const_cast<CPhysical*>(physical);
+    if (CMatrix* matrix = p->GetMatrix()) return matrix->pos;
+    return p->m_placement.m_vPosn;
 }
 
 void WorldStateAdapter::CapturePhysical(CPhysical* physical, PhysicalState& out) {
@@ -69,25 +69,23 @@ void WorldStateAdapter::CapturePhysical(CPhysical* physical, PhysicalState& out)
 void WorldStateAdapter::ApplyPhysical(CPhysical* physical, const PhysicalState& state) {
     if (!physical) return;
 
-    if (state.transform.hasMatrix) {
-        if (!physical->GetMatrix()) physical->AllocateMatrix();
-        if (CMatrix* matrix = physical->GetMatrix()) {
-            matrix->right = state.transform.right;
-            matrix->up = state.transform.forward;
-            matrix->at = state.transform.up;
-            matrix->pos = state.transform.position;
-            matrix->UpdateRW();
-        }
+    CMatrix* matrix = physical->GetMatrix();
+    if (state.transform.hasMatrix && matrix) {
+        matrix->right = state.transform.right;
+        matrix->up = state.transform.forward;
+        matrix->at = state.transform.up;
+        matrix->pos = state.transform.position;
+        matrix->Reorthogonalise();
+        matrix->UpdateRW();
+    } else if (matrix) {
+        matrix->SetRotateZ(state.transform.heading);
+        matrix->SetTranslateOnly(state.transform.position.x,
+                                 state.transform.position.y,
+                                 state.transform.position.z);
+        matrix->UpdateRW();
     } else {
         physical->m_placement.m_vPosn = state.transform.position;
-        physical->m_placement.m_fHeading = state.transform.heading;
-        if (CMatrix* matrix = physical->GetMatrix()) {
-            matrix->SetRotateZ(state.transform.heading);
-            matrix->SetTranslateOnly(state.transform.position.x,
-                                     state.transform.position.y,
-                                     state.transform.position.z);
-            matrix->UpdateRW();
-        }
+        if (!state.transform.hasMatrix) physical->m_placement.m_fHeading = state.transform.heading;
     }
 
     physical->m_vecMoveSpeed = state.moveSpeed;
@@ -97,11 +95,9 @@ void WorldStateAdapter::ApplyPhysical(CPhysical* physical, const PhysicalState& 
 
 CVector WorldStateAdapter::LerpVector(const CVector& a, const CVector& b, float t) {
     t = Clamp01(t);
-    return CVector(
-        a.x + (b.x - a.x) * t,
-        a.y + (b.y - a.y) * t,
-        a.z + (b.z - a.z) * t
-    );
+    return CVector(a.x + (b.x - a.x) * t,
+                   a.y + (b.y - a.y) * t,
+                   a.z + (b.z - a.z) * t);
 }
 
 float WorldStateAdapter::LerpAngle(float a, float b, float t) {
@@ -116,22 +112,11 @@ float WorldStateAdapter::LerpAngle(float a, float b, float t) {
 PhysicalState WorldStateAdapter::LerpPhysical(const PhysicalState& a, const PhysicalState& b, float t) {
     t = Clamp01(t);
     PhysicalState out{};
-    out.transform.hasMatrix = b.transform.hasMatrix;
-    if (a.transform.hasMatrix && b.transform.hasMatrix) {
-        out.transform.right = LerpVector(a.transform.right, b.transform.right, t);
-        out.transform.forward = LerpVector(a.transform.forward, b.transform.forward, t);
-        out.transform.up = LerpVector(a.transform.up, b.transform.up, t);
-        out.transform.right.Normalise();
-        out.transform.forward.Normalise();
-        out.transform.up.Normalise();
-        out.transform.position = LerpVector(a.transform.position, b.transform.position, t);
-    } else if (!a.transform.hasMatrix && !b.transform.hasMatrix) {
-        out.transform.position = LerpVector(a.transform.position, b.transform.position, t);
+    out.transform = b.transform;
+    out.transform.position = LerpVector(a.transform.position, b.transform.position, t);
+    if (!a.transform.hasMatrix && !b.transform.hasMatrix) {
         out.transform.heading = LerpAngle(a.transform.heading, b.transform.heading, t);
-    } else {
-        out.transform = (t < 0.5f) ? a.transform : b.transform;
     }
-
     out.moveSpeed = LerpVector(a.moveSpeed, b.moveSpeed, t);
     out.turnSpeed = LerpVector(a.turnSpeed, b.turnSpeed, t);
     return out;
@@ -186,16 +171,17 @@ void WorldStateAdapter::BeginAnchorPose(const char* anim, const char* ifp) const
     const int pedRef = CPools::GetPedRef(player);
     if (pedRef < 0) return;
 
+    Command<Commands::CLEAR_CHAR_TASKS_IMMEDIATELY>(pedRef);
     Command<Commands::TASK_PLAY_ANIM>(
         pedRef,
         (anim && *anim) ? anim : "IDLE_TAXI",
         (ifp && *ifp) ? ifp : "PED",
-        4.0f,
+        3.2f,
         0,
         0,
         0,
         1,
-        -1
+        900
     );
 }
 
@@ -203,8 +189,9 @@ void WorldStateAdapter::EndAnchorPose() const {
     CPlayerPed* player = FindPlayerPed(-1);
     if (!player) return;
     const int pedRef = CPools::GetPedRef(player);
-    if (pedRef >= 0) Command<Commands::CLEAR_CHAR_TASKS>(pedRef);
-    player->bUsesCollision = true;
+    if (pedRef >= 0) Command<Commands::CLEAR_CHAR_TASKS_IMMEDIATELY>(pedRef);
+    player->RestartNonPartialAnims();
+    player->RestoreHeadingRate();
     player->SetIdle();
 }
 
@@ -218,19 +205,29 @@ bool WorldStateAdapter::CaptureWorld(WorldFrame& out, uint64_t sequence) const {
 
     const CVector anchorPos = GetPhysicalPosition(player);
     const float radius2 = m_settings.radius * m_settings.radius;
-    std::vector<Candidate> candidates;
-    candidates.reserve(96);
+    std::array<Candidate, kHardMaxWorldEntities> candidates{};
+    std::size_t candidateCount = 0;
+
+    auto consider = [&](EntityKind kind, int32_t ref, float d2) {
+        if (candidateCount < m_settings.maxEntities) {
+            candidates[candidateCount++] = Candidate{kind, ref, d2};
+            return;
+        }
+        std::size_t worst = 0;
+        for (std::size_t i = 1; i < candidateCount; ++i) {
+            if (candidates[i].dist2 > candidates[worst].dist2) worst = i;
+        }
+        if (d2 < candidates[worst].dist2) candidates[worst] = Candidate{kind, ref, d2};
+    };
 
     if (CPedPool* pool = CPools::ms_pPedPool) {
         const int size = pool->GetSize();
         for (int i = 0; i < size; ++i) {
             CPed* ped = pool->GetAt(i);
-            if (!ped || ped == player) continue;
-            if (ped->bInVehicle) continue;
+            if (!ped || ped == player || ped->bInVehicle || !ped->IsAlive()) continue;
             if (ped->m_nAreaCode != player->m_nAreaCode) continue;
             const float d2 = DistanceSq(GetPhysicalPosition(ped), anchorPos);
-            if (d2 > radius2) continue;
-            candidates.push_back({EntityKind::Ped, pool->GetRef(ped), d2});
+            if (d2 <= radius2) consider(EntityKind::Ped, pool->GetRef(ped), d2);
         }
     }
 
@@ -241,18 +238,15 @@ bool WorldStateAdapter::CaptureWorld(WorldFrame& out, uint64_t sequence) const {
             if (!vehicle) continue;
             if (vehicle->m_nAreaCode != player->m_nAreaCode) continue;
             const float d2 = DistanceSq(GetPhysicalPosition(vehicle), anchorPos);
-            if (d2 > radius2) continue;
-            candidates.push_back({EntityKind::Vehicle, pool->GetRef(vehicle), d2});
+            if (d2 <= radius2) consider(EntityKind::Vehicle, pool->GetRef(vehicle), d2);
         }
     }
 
-    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
-        return a.dist2 < b.dist2;
-    });
-    if (candidates.size() > m_settings.maxEntities) candidates.resize(m_settings.maxEntities);
+    std::sort(candidates.begin(), candidates.begin() + candidateCount,
+              [](const Candidate& a, const Candidate& b) { return a.dist2 < b.dist2; });
 
-    for (const Candidate& c : candidates) {
-        if (out.count >= kHardMaxWorldEntities) break;
+    for (std::size_t ci = 0; ci < candidateCount && out.count < kHardMaxWorldEntities; ++ci) {
+        const Candidate& c = candidates[ci];
         EntitySnapshot& snap = out.entities[out.count];
         snap = {};
         snap.kind = c.kind;
@@ -260,7 +254,7 @@ bool WorldStateAdapter::CaptureWorld(WorldFrame& out, uint64_t sequence) const {
 
         if (c.kind == EntityKind::Ped) {
             CPed* ped = CPools::GetPed(c.ref);
-            if (!ped || ped == player || ped->bInVehicle) continue;
+            if (!ped || ped == player || ped->bInVehicle || !ped->IsAlive()) continue;
             CapturePhysical(ped, snap.physical);
             snap.health = ped->m_fHealth;
             snap.armour = ped->m_fArmour;
@@ -272,7 +266,6 @@ bool WorldStateAdapter::CaptureWorld(WorldFrame& out, uint64_t sequence) const {
             CapturePhysical(vehicle, snap.physical);
             snap.health = vehicle->m_fHealth;
         }
-
         ++out.count;
     }
 
@@ -289,10 +282,13 @@ const EntitySnapshot* WorldStateAdapter::FindSnapshot(const WorldFrame& frame, E
 
 bool WorldStateAdapter::ApplyEntity(const EntitySnapshot& target, const EntitySnapshot* from, float alpha) const {
     const PhysicalState physical = from ? LerpPhysical(from->physical, target.physical, alpha) : target.physical;
+    CPlayerPed* player = FindPlayerPed(-1);
+    if (!player) return false;
 
     if (target.kind == EntityKind::Ped) {
         CPed* ped = CPools::GetPed(target.ref);
-        if (!ped || ped->IsPlayer() || ped->bInVehicle) return false;
+        if (!ped || ped->IsPlayer() || ped->bInVehicle || !ped->IsAlive()) return false;
+        if (ped->m_nAreaCode != player->m_nAreaCode) return false;
         ApplyPhysical(ped, physical);
         if (from) {
             ped->m_fCurrentRotation = LerpAngle(from->currentRotation, target.currentRotation, alpha);
@@ -301,7 +297,7 @@ bool WorldStateAdapter::ApplyEntity(const EntitySnapshot& target, const EntitySn
             ped->m_fCurrentRotation = target.currentRotation;
             ped->m_fAimingRotation = target.aimingRotation;
         }
-        if (m_settings.restoreHealth && ped->IsAlive()) {
+        if (m_settings.restoreHealth) {
             ped->m_fHealth = target.health;
             ped->m_fArmour = target.armour;
         }
@@ -309,7 +305,7 @@ bool WorldStateAdapter::ApplyEntity(const EntitySnapshot& target, const EntitySn
     }
 
     CVehicle* vehicle = CPools::GetVehicle(target.ref);
-    if (!vehicle) return false;
+    if (!vehicle || vehicle->m_nAreaCode != player->m_nAreaCode) return false;
     ApplyPhysical(vehicle, physical);
     if (m_settings.restoreHealth && vehicle->m_fHealth > 0.0f) vehicle->m_fHealth = target.health;
     return true;
@@ -333,7 +329,7 @@ void WorldStateAdapter::QuiesceWorld(const WorldFrame* frame) const {
         CPhysical* physical = nullptr;
         if (s.kind == EntityKind::Ped) {
             CPed* ped = CPools::GetPed(s.ref);
-            if (!ped || ped->IsPlayer() || ped->bInVehicle) continue;
+            if (!ped || ped->IsPlayer() || ped->bInVehicle || !ped->IsAlive()) continue;
             physical = ped;
         } else {
             physical = CPools::GetVehicle(s.ref);
