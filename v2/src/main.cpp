@@ -11,7 +11,7 @@
 
 #include <string>
 
-MYMODCFG(net.noxxa.rewind, NOXXA REWIND, 2.1.0, henn)
+MYMODCFG(net.noxxa.rewind, NOXXA REWIND, 2.1.1, henn)
 NEEDGAME(com.rockstargames.gtasa)
 
 BEGIN_DEPLIST()
@@ -36,11 +36,11 @@ std::string JoinPath(const char* root, const char* suffix) {
 
 ON_MOD_LOAD()
 {
-    logger->SetTag("NOXXA REWIND v2.1");
+    logger->SetTag("NOXXA REWIND v2.1.1");
 
 #ifndef AML32
-    logger->Error("v2.1 currently targets GTA SA v2.00 / armeabi-v7a.");
-    aml->ShowToast(true, "NOXXA REWIND v2.1: 32-bit GTA SA v2.00 required");
+    logger->Error("v2.1.1 currently targets GTA SA v2.00 / armeabi-v7a.");
+    aml->ShowToast(true, "NOXXA REWIND v2.1.1: 32-bit GTA SA v2.00 required");
     return;
 #endif
 
@@ -54,6 +54,7 @@ ON_MOD_LOAD()
     settings.rewindTimeScale = cfg->GetFloat("TimeScale", 0.12f, "World");
     settings.restoreWorldHealth = cfg->GetBool("RestoreHealth", false, "World");
     settings.haptics = cfg->GetBool("Haptics", true, "Effects");
+    settings.safeStart = cfg->GetBool("SafeStart", true, "Debug");
     settings.poseAnim = cfg->GetString("PoseAnim", "IDLE_TAXI", "Anchor");
     settings.poseIfp = cfg->GetString("PoseIFP", "PED", "Anchor");
 
@@ -84,7 +85,8 @@ ON_MOD_LOAD()
     Events::drawAfterFadeEvent.after += []() { g_fx.Draw(g_core); };
     Events::drawHudEvent.after += []() { g_ui.DrawButton(g_core); };
 
-    logger->Info("Loaded v2.1 stability build: %.1fs @ %dHz, radius %.1fm, max %d entities",
-                 settings.historySeconds, settings.snapshotHz, settings.radius, settings.maxEntities);
-    aml->ShowToast(false, "NOXXA REWIND v2.1 loaded - stability rebuild");
+    logger->Info("Loaded v2.1.1 safe-start build: %.1fs @ %dHz, radius %.1fm, max %d entities, safe=%d",
+                 settings.historySeconds, settings.snapshotHz, settings.radius, settings.maxEntities,
+                 settings.safeStart ? 1 : 0);
+    aml->ShowToast(false, "NOXXA REWIND v2.1.1 loaded - safe start ON");
 }
