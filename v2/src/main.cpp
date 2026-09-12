@@ -11,7 +11,7 @@
 
 #include <string>
 
-MYMODCFG(net.noxxa.rewind, NOXXA REWIND, 2.0.0, henn)
+MYMODCFG(net.noxxa.rewind, NOXXA REWIND, 2.1.0, henn)
 NEEDGAME(com.rockstargames.gtasa)
 
 BEGIN_DEPLIST()
@@ -36,22 +36,22 @@ std::string JoinPath(const char* root, const char* suffix) {
 
 ON_MOD_LOAD()
 {
-    logger->SetTag("NOXXA REWIND v2");
+    logger->SetTag("NOXXA REWIND v2.1");
 
 #ifndef AML32
-    logger->Error("v2.0 currently targets GTA SA v2.00 / armeabi-v7a.");
-    aml->ShowToast(true, "NOXXA REWIND v2: 32-bit GTA SA v2.00 required");
+    logger->Error("v2.1 currently targets GTA SA v2.00 / armeabi-v7a.");
+    aml->ShowToast(true, "NOXXA REWIND v2.1: 32-bit GTA SA v2.00 required");
     return;
 #endif
 
     noxxa::RewindSettings settings{};
     settings.historySeconds = cfg->GetFloat("HistorySeconds", 8.0f, "Rewind");
-    settings.snapshotHz = cfg->GetInt("SnapshotHz", 30, "Rewind");
-    settings.rewindSpeed = cfg->GetFloat("RewindSpeed", 1.35f, "Rewind");
+    settings.snapshotHz = cfg->GetInt("SnapshotHz", 24, "Rewind");
+    settings.rewindSpeed = cfg->GetFloat("RewindSpeed", 1.25f, "Rewind");
     settings.quickSeconds = cfg->GetFloat("QuickRewindSeconds", 3.0f, "Rewind");
-    settings.radius = cfg->GetFloat("Radius", 45.0f, "World");
-    settings.maxEntities = cfg->GetInt("MaxEntities", 48, "World");
-    settings.rewindTimeScale = cfg->GetFloat("TimeScale", 0.06f, "World");
+    settings.radius = cfg->GetFloat("Radius", 38.0f, "World");
+    settings.maxEntities = cfg->GetInt("MaxEntities", 32, "World");
+    settings.rewindTimeScale = cfg->GetFloat("TimeScale", 0.12f, "World");
     settings.restoreWorldHealth = cfg->GetBool("RestoreHealth", false, "World");
     settings.haptics = cfg->GetBool("Haptics", true, "Effects");
     settings.poseAnim = cfg->GetString("PoseAnim", "IDLE_TAXI", "Anchor");
@@ -63,46 +63,28 @@ ON_MOD_LOAD()
 
     const std::string assetDir = JoinPath(aml->GetAndroidDataRootPath(), "mods/NoxxaRewind");
     const std::string enterWav = JoinPath(assetDir.c_str(), "rewind_enter.wav");
-    const std::string loopWav = JoinPath(assetDir.c_str(), "rewind_loop.wav");
+    const std::string bedWav = JoinPath(assetDir.c_str(), "rewind_loop.wav");
     const std::string releaseWav = JoinPath(assetDir.c_str(), "rewind_release.wav");
 
-    if (!g_audio.Init(enterWav, loopWav, releaseWav)) {
+    if (!g_audio.Init(enterWav, bedWav, releaseWav)) {
         logger->Error("Temporal audio failed to load. Rewind core will continue without it.");
     }
 
     g_ui.Init(buttonX, buttonY, buttonScale);
     g_core.Init(settings, &g_audio);
 
-    Events::gameProcessEvent.before += []()
-    {
-        g_core.BeforeGameProcess();
-    };
-
-    Events::gameProcessEvent.after += []()
-    {
+    Events::gameProcessEvent.before += []() { g_core.BeforeGameProcess(); };
+    Events::gameProcessEvent.after += []() {
         const noxxa::RewindInput input = g_ui.PollInput();
         g_core.Tick(input.held, input.released, input.doubleTapped);
     };
-
-    Events::touchScreenEvent.after += [](int actionType, int finger, int x, int y)
-    {
+    Events::touchScreenEvent.after += [](int actionType, int finger, int x, int y) {
         g_ui.OnTouch(actionType, finger, x, y);
     };
+    Events::drawAfterFadeEvent.after += []() { g_fx.Draw(g_core); };
+    Events::drawHudEvent.after += []() { g_ui.DrawButton(g_core); };
 
-    Events::drawAfterFadeEvent.after += []()
-    {
-        g_fx.Draw(g_core);
-    };
-
-    Events::drawHudEvent.after += []()
-    {
-        g_ui.DrawButton(g_core);
-    };
-
-    logger->Info("Loaded Anchor Mode: %.1fs @ %dHz, radius %.1fm, max %d entities",
-                 settings.historySeconds,
-                 settings.snapshotHz,
-                 settings.radius,
-                 settings.maxEntities);
-    aml->ShowToast(false, "NOXXA REWIND v2 loaded - player is the time anchor");
+    logger->Info("Loaded v2.1 stability build: %.1fs @ %dHz, radius %.1fm, max %d entities",
+                 settings.historySeconds, settings.snapshotHz, settings.radius, settings.maxEntities);
+    aml->ShowToast(false, "NOXXA REWIND v2.1 loaded - stability rebuild");
 }

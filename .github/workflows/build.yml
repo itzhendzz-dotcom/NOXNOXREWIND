@@ -1,4 +1,4 @@
-name: Build NOXXA REWIND v2
+name: Build NOXXA REWIND v2.1
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate v2 source
+      - name: Validate v2.1 source
         shell: bash
         run: |
           set -euxo pipefail
@@ -42,13 +42,15 @@ jobs:
           python3 - <<'PY'
           import wave
           from pathlib import Path
-          for name in ('rewind_enter.wav','rewind_loop.wav','rewind_release.wav'):
+          expected_min = {'rewind_enter.wav': 0.30, 'rewind_loop.wav': 8.50, 'rewind_release.wav': 0.40}
+          for name, min_dur in expected_min.items():
               p = Path('generated_audio') / name
               assert p.is_file() and p.stat().st_size > 4096, p
               with wave.open(str(p), 'rb') as w:
                   assert w.getnchannels() == 2
                   assert w.getframerate() == 48000
                   assert w.getsampwidth() == 2
+                  assert w.getnframes() / w.getframerate() >= min_dur
           print('audio validation: PASS')
           PY
 
@@ -88,7 +90,7 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra tests/timeline_test.cpp -o tests/timeline_test
           ./tests/timeline_test
 
-      - name: Package installable v2
+      - name: Package installable v2.1
         working-directory: v2
         shell: bash
         run: |
@@ -103,14 +105,14 @@ jobs:
           cp NoxxaRewind.ini.example release/
           cp INSTALL.md release/
           cp README.md release/README-v2.md
-          printf '%s\n' 'NOXXA REWIND v2.0.0 - ANCHOR MODE' > release/VERSION.txt
+          printf '%s\n' 'NOXXA REWIND v2.1.0 - STABILITY + FEEL PASS' > release/VERSION.txt
           cd release
-          zip -qr ../NOXXA_REWIND-v2.0.0.zip .
+          zip -qr ../NOXXA_REWIND-v2.1.0.zip .
 
-      - name: Upload v2 artifact
+      - name: Upload v2.1 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NOXXA_REWIND-v2.0.0
-          path: v2/NOXXA_REWIND-v2.0.0.zip
+          name: NOXXA_REWIND-v2.1.0
+          path: v2/NOXXA_REWIND-v2.1.0.zip
           if-no-files-found: error
           compression-level: 0
