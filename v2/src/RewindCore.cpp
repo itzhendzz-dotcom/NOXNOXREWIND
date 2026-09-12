@@ -13,10 +13,11 @@ namespace noxxa {
 
 void RewindCore::Init(const RewindSettings& settings, RewindAudio* audio) {
     m_settings = settings;
-    m_settings.historySeconds = std::clamp(m_settings.historySeconds, 2.0f, 12.0f);
+    m_settings.historySeconds = std::clamp(m_settings.historySeconds, 2.0f, 20.0f);
     m_settings.snapshotHz = std::clamp(m_settings.snapshotHz, 15, 45);
     m_settings.rewindSpeed = std::clamp(m_settings.rewindSpeed, 0.5f, 2.5f);
     m_settings.quickSeconds = std::clamp(m_settings.quickSeconds, 0.5f, m_settings.historySeconds);
+    m_settings.maxRewindSeconds = std::clamp(m_settings.maxRewindSeconds, 0.5f, m_settings.historySeconds);
     m_settings.radius = std::clamp(m_settings.radius, 10.0f, 75.0f);
     m_settings.maxEntities = std::clamp(m_settings.maxEntities, 4, static_cast<int>(kHardMaxWorldEntities));
     m_settings.rewindTimeScale = std::clamp(m_settings.rewindTimeScale, 0.08f, 0.35f);
@@ -32,7 +33,7 @@ void RewindCore::Init(const RewindSettings& settings, RewindAudio* audio) {
 
     m_audio = audio;
     m_lastTick = Clock::now();
-    logger->Info("SAFE START=%d", m_settings.safeStart ? 1 : 0);
+    logger->Info("SAFE START=%d, max rewind %.3fs", m_settings.safeStart ? 1 : 0, m_settings.maxRewindSeconds);
 }
 
 void RewindCore::BeforeGameProcess() {
@@ -48,18 +49,27 @@ void RewindCore::Tick(bool holdDown, bool released, bool doubleTapped) {
     m_lastTick = now;
     dt = std::clamp(dt, 0.0, 0.100);
 
+    bool beganThisTick = false;
     if (!m_rewinding) {
         Record(dt);
-        if (doubleTapped) BeginRewind(true);
-        else if (holdDown) BeginRewind(false);
+        if (doubleTapped) beganThisTick = BeginRewind(true);
+        else if (holdDown) beganThisTick = BeginRewind(false);
     }
 
     if (m_rewinding) {
-        if (m_justBegan) {
-            // Critical safety barrier: do not mutate the ped, world, audio queue,
-            // animation task tree, or time scale in the same frame as touch input.
+        if (beganThisTick) {
+            // Do absolutely nothing else on the touch frame.
+            logger->Info("BEGIN stage 6: armed; audio/world deferred to following frames");
+        } else if (m_justBegan) {
+            // First full frame after touch: start audio only. World mutation waits
+            // one more frame, preserving the no-FC safe-start baseline.
             m_justBegan = false;
-            logger->Info("BEGIN stage 6: armed; first apply deferred to next frame");
+            if (m_audio && m_audio->Ready()) {
+                logger->Info("BEGIN stage 7: starting delayed rewind audio");
+                m_audio->StartRewind();
+                m_audioActive = true;
+            }
+            logger->Info("BEGIN stage 8: audio armed; world apply begins next frame");
         } else if (!m_anchor.valid || m_world.IsPlayerInVehicle()) {
             EndRewind(false);
         } else {
@@ -116,6 +126,7 @@ bool RewindCore::BeginRewind(bool quickMode) {
     m_rewinding = true;
     m_quickMode = quickMode;
     m_rewindPhase = 0.0;
+    m_activeRewindSeconds = 0.0;
     m_rewindStartCursor = m_timeline.Cursor();
     m_quickRemainingSeconds = quickMode ? m_settings.quickSeconds : 0.0;
     m_justBegan = true;
@@ -124,18 +135,9 @@ bool RewindCore::BeginRewind(bool quickMode) {
 
     logger->Info("BEGIN stage 5: core state armed");
 
-    if (!m_settings.safeStart) {
-        // Experimental/full path only. SafeStart deliberately avoids all APIs
-        // that may free task/audio internals on the touch frame.
-        m_world.BeginAnchorPose(m_settings.poseAnim.c_str(), m_settings.poseIfp.c_str());
-        m_poseActive = true;
-        if (m_audio) {
-            m_audio->StartRewind();
-            m_audioActive = true;
-        }
-        if (m_settings.haptics && aml) aml->DoVibro(14);
-    }
-
+    // v2.1.2 intentionally keeps the risky task-tree pose path disabled.
+    // Audio is reintroduced separately one frame later so we can preserve the
+    // v2.1.1 stability proof while validating the user's exact SFX.
     return true;
 }
 
@@ -149,6 +151,13 @@ void RewindCore::ApplyInterpolatedCurrent() {
 
 void RewindCore::ProcessRewind(double dt, bool holdDown, bool released) {
     if (!m_quickMode && (released || !holdDown)) {
+        EndRewind(true);
+        return;
+    }
+
+    m_activeRewindSeconds += dt;
+    if (!m_quickMode && m_activeRewindSeconds >= static_cast<double>(m_settings.maxRewindSeconds)) {
+        logger->Info("AUTO END: user SFX duration reached (%.3fs)", m_settings.maxRewindSeconds);
         EndRewind(true);
         return;
     }
@@ -212,20 +221,21 @@ void RewindCore::EndRewind(bool commit) {
         m_poseActive = false;
     }
 
+    if (m_audio && m_audioActive) {
+        m_audio->StopWithRelease();
+        m_audioActive = false;
+    }
+
     m_rewinding = false;
     m_quickMode = false;
     m_justBegan = false;
     m_rewindPhase = 0.0;
+    m_activeRewindSeconds = 0.0;
     m_quickRemainingSeconds = 0.0;
     m_recordAccumulator = 0.0;
     m_anchor = {};
     m_lastTick = Clock::now();
 
-    if (m_audio && m_audioActive) {
-        m_audio->StopWithRelease();
-        m_audioActive = false;
-    }
-    if (!m_settings.safeStart && m_settings.haptics && aml) aml->DoVibro(8);
     logger->Info("END stage 2: complete");
 }
 
