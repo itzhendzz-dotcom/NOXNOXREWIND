@@ -1,0 +1,25 @@
+[Rewind]
+HistorySeconds=8.0
+SnapshotHz=30
+RewindSpeed=1.35
+QuickRewindSeconds=3.0
+
+[World]
+Radius=45.0
+MaxEntities=48
+TimeScale=0.06
+RestoreHealth=0
+
+[Anchor]
+; Vanilla fallback gesture: one arm goes up like hailing a taxi.
+; Later custom IFP builds can replace this without changing the core.
+PoseAnim=IDLE_TAXI
+PoseIFP=PED
+
+[UI]
+ButtonX=0.88
+ButtonY=0.62
+ButtonScale=1.0
+
+[Effects]
+Haptics=1

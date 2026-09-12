@@ -1,45 +1,60 @@
-name: Build NOXXA REWIND
+name: Build NOXXA REWIND v2
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
     paths:
-      - 'NOXXA_REWIND_SOURCE_v0.1.0.zip'
-      - 'overlay-v0.1.1/**'
+      - 'v2/**'
       - '.github/workflows/build.yml'
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract and apply v0.1.1 native UI overlay
+      - name: Validate v2 source
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf NOXXA_REWIND
-          unzip -q -o NOXXA_REWIND_SOURCE_v0.1.0.zip
-          cp overlay-v0.1.1/src/main.cpp NOXXA_REWIND/src/main.cpp
-          cp overlay-v0.1.1/src/RewindUI.hpp NOXXA_REWIND/src/RewindUI.hpp
-          cp overlay-v0.1.1/src/RewindUI.cpp NOXXA_REWIND/src/RewindUI.cpp
-          test -f NOXXA_REWIND/Android.mk
-          test -f NOXXA_REWIND/Application.mk
-          test -f NOXXA_REWIND/src/GameState.cpp
-          test -f NOXXA_REWIND/tests/timeline_test.cpp
-          grep -q '0.1.1' NOXXA_REWIND/src/main.cpp
-          chmod +x NOXXA_REWIND/scripts/bootstrap_deps.sh
+          test -f v2/Android.mk
+          test -f v2/Application.mk
+          test -f v2/src/main.cpp
+          test -f v2/src/WorldState.cpp
+          test -f v2/src/RewindCore.cpp
+          test -f v2/scripts/bootstrap_deps.sh
+          test -f v2/scripts/synth_audio.py
+          chmod +x v2/scripts/bootstrap_deps.sh v2/scripts/synth_audio.py
+
+      - name: Generate original temporal audio
+        working-directory: v2
+        run: python3 scripts/synth_audio.py
+
+      - name: Validate generated WAVs
+        working-directory: v2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import wave
+          from pathlib import Path
+          for name in ('rewind_enter.wav','rewind_loop.wav','rewind_release.wav'):
+              p = Path('generated_audio') / name
+              assert p.is_file() and p.stat().st_size > 4096, p
+              with wave.open(str(p), 'rb') as w:
+                  assert w.getnchannels() == 2
+                  assert w.getframerate() == 48000
+                  assert w.getsampwidth() == 2
+          print('audio validation: PASS')
+          PY
 
       - name: Fetch pinned AML dependencies
-        working-directory: NOXXA_REWIND
-        shell: bash
-        run: |
-          set -euxo pipefail
-          ./scripts/bootstrap_deps.sh
+        working-directory: v2
+        run: ./scripts/bootstrap_deps.sh
 
       - name: Set up Android NDK r24
         uses: nttld/setup-ndk@v1
@@ -48,7 +63,7 @@ jobs:
           add-to-path: true
 
       - name: Build armeabi-v7a mod
-        working-directory: NOXXA_REWIND
+        working-directory: v2
         shell: bash
         run: |
           set -euxo pipefail
@@ -66,15 +81,15 @@ jobs:
             -j2
 
       - name: Run timeline unit test
-        working-directory: NOXXA_REWIND
+        working-directory: v2
         shell: bash
         run: |
           set -euxo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra tests/timeline_test.cpp -o tests/timeline_test
           ./tests/timeline_test
 
-      - name: Package installable mod
-        working-directory: NOXXA_REWIND
+      - name: Package installable v2
+        working-directory: v2
         shell: bash
         run: |
           set -euxo pipefail
@@ -82,19 +97,20 @@ jobs:
           rm -rf release
           mkdir -p release/NoxxaRewind
           cp libs/armeabi-v7a/libNoxxaRewind.so release/
-          cp assets/rewind_button.png release/NoxxaRewind/ || true
-          cp audio/rewind_loop.wav release/NoxxaRewind/
-          cp audio/rewind_release.wav release/NoxxaRewind/
+          cp generated_audio/rewind_enter.wav release/NoxxaRewind/
+          cp generated_audio/rewind_loop.wav release/NoxxaRewind/
+          cp generated_audio/rewind_release.wav release/NoxxaRewind/
           cp NoxxaRewind.ini.example release/
           cp INSTALL.md release/
-          printf '%s\n' 'NOXXA REWIND v0.1.1 - native HUD/touch hotfix' > release/VERSION.txt
+          cp README.md release/README-v2.md
+          printf '%s\n' 'NOXXA REWIND v2.0.0 - ANCHOR MODE' > release/VERSION.txt
           cd release
-          zip -qr ../NOXXA_REWIND-v0.1.1.zip .
+          zip -qr ../NOXXA_REWIND-v2.0.0.zip .
 
-      - name: Upload NOXXA REWIND artifact
+      - name: Upload v2 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NOXXA_REWIND-v0.1.1
-          path: NOXXA_REWIND/NOXXA_REWIND-v0.1.1.zip
+          name: NOXXA_REWIND-v2.0.0
+          path: v2/NOXXA_REWIND-v2.0.0.zip
           if-no-files-found: error
           compression-level: 0
