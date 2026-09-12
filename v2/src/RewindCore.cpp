@@ -4,6 +4,7 @@
 #include <aml-psdk/game_sa/base/Timer.h>
 #include <aml-psdk/game_sa/other/Pools.h>
 #include <mod/amlmod.h>
+#include <mod/logger.h>
 
 #include <algorithm>
 #include <cmath>
@@ -31,10 +32,11 @@ void RewindCore::Init(const RewindSettings& settings, RewindAudio* audio) {
 
     m_audio = audio;
     m_lastTick = Clock::now();
+    logger->Info("SAFE START=%d", m_settings.safeStart ? 1 : 0);
 }
 
 void RewindCore::BeforeGameProcess() {
-    if (!m_rewinding) return;
+    if (!m_rewinding || m_justBegan) return;
     CTimer::ms_fTimeScale = m_settings.rewindTimeScale;
     m_world.QuiescePlayer();
     m_world.QuiesceWorld(m_timeline.Current());
@@ -53,7 +55,12 @@ void RewindCore::Tick(bool holdDown, bool released, bool doubleTapped) {
     }
 
     if (m_rewinding) {
-        if (!m_anchor.valid || m_world.IsPlayerInVehicle()) {
+        if (m_justBegan) {
+            // Critical safety barrier: do not mutate the ped, world, audio queue,
+            // animation task tree, or time scale in the same frame as touch input.
+            m_justBegan = false;
+            logger->Info("BEGIN stage 6: armed; first apply deferred to next frame");
+        } else if (!m_anchor.valid || m_world.IsPlayerInVehicle()) {
             EndRewind(false);
         } else {
             m_world.ApplyAnchor(m_anchor);
@@ -62,7 +69,7 @@ void RewindCore::Tick(bool holdDown, bool released, bool doubleTapped) {
     }
 
     UpdateVisualIntensity(dt);
-    if (m_audio) m_audio->SetIntensity(m_visualIntensity);
+    if (m_audio && m_audioActive) m_audio->SetIntensity(m_visualIntensity);
 }
 
 void RewindCore::Record(double dt) {
@@ -80,13 +87,26 @@ void RewindCore::Record(double dt) {
 }
 
 bool RewindCore::BeginRewind(bool quickMode) {
-    if (!m_world.PlayerCanAnchor()) return false;
+    logger->Info("BEGIN stage 1: request");
+    if (!m_world.PlayerCanAnchor()) {
+        logger->Info("BEGIN cancelled: player cannot anchor");
+        return false;
+    }
 
+    logger->Info("BEGIN stage 2: capture present");
     WorldFrame present{};
     if (m_world.CaptureWorld(present, ++m_sequence)) m_timeline.Push(present);
-    if (!m_timeline.BeginRewind()) return false;
+
+    logger->Info("BEGIN stage 3: open timeline cursor");
+    if (!m_timeline.BeginRewind()) {
+        logger->Info("BEGIN cancelled: not enough history");
+        return false;
+    }
+
+    logger->Info("BEGIN stage 4: capture player anchor");
     if (!m_world.CaptureAnchor(m_anchor)) {
         m_timeline.CancelRewind();
+        logger->Info("BEGIN cancelled: anchor capture failed");
         return false;
     }
 
@@ -98,13 +118,24 @@ bool RewindCore::BeginRewind(bool quickMode) {
     m_rewindPhase = 0.0;
     m_rewindStartCursor = m_timeline.Cursor();
     m_quickRemainingSeconds = quickMode ? m_settings.quickSeconds : 0.0;
+    m_justBegan = true;
+    m_poseActive = false;
+    m_audioActive = false;
 
-    m_world.BeginAnchorPose(m_settings.poseAnim.c_str(), m_settings.poseIfp.c_str());
-    m_world.ApplyAnchor(m_anchor);
-    CTimer::ms_fTimeScale = m_settings.rewindTimeScale;
+    logger->Info("BEGIN stage 5: core state armed");
 
-    if (m_audio) m_audio->StartRewind();
-    if (m_settings.haptics && aml) aml->DoVibro(14);
+    if (!m_settings.safeStart) {
+        // Experimental/full path only. SafeStart deliberately avoids all APIs
+        // that may free task/audio internals on the touch frame.
+        m_world.BeginAnchorPose(m_settings.poseAnim.c_str(), m_settings.poseIfp.c_str());
+        m_poseActive = true;
+        if (m_audio) {
+            m_audio->StartRewind();
+            m_audioActive = true;
+        }
+        if (m_settings.haptics && aml) aml->DoVibro(14);
+    }
+
     return true;
 }
 
@@ -159,8 +190,9 @@ void RewindCore::ProcessRewind(double dt, bool holdDown, bool released) {
 
 void RewindCore::EndRewind(bool commit) {
     if (!m_rewinding) return;
+    logger->Info("END stage 1: commit=%d", commit ? 1 : 0);
 
-    ApplyInterpolatedCurrent();
+    if (!m_justBegan) ApplyInterpolatedCurrent();
     if (commit) m_timeline.CommitRewind();
     else m_timeline.CancelRewind();
 
@@ -174,18 +206,27 @@ void RewindCore::EndRewind(bool commit) {
         m_world.ApplyAnchor(m_anchor);
         if (CPed* ped = CPools::GetPed(m_anchor.pedRef)) ped->bUsesCollision = m_anchor.collisionEnabled;
     }
-    m_world.EndAnchorPose();
+
+    if (m_poseActive) {
+        m_world.EndAnchorPose();
+        m_poseActive = false;
+    }
 
     m_rewinding = false;
     m_quickMode = false;
+    m_justBegan = false;
     m_rewindPhase = 0.0;
     m_quickRemainingSeconds = 0.0;
     m_recordAccumulator = 0.0;
     m_anchor = {};
     m_lastTick = Clock::now();
 
-    if (m_audio) m_audio->StopWithRelease();
-    if (m_settings.haptics && aml) aml->DoVibro(8);
+    if (m_audio && m_audioActive) {
+        m_audio->StopWithRelease();
+        m_audioActive = false;
+    }
+    if (!m_settings.safeStart && m_settings.haptics && aml) aml->DoVibro(8);
+    logger->Info("END stage 2: complete");
 }
 
 void RewindCore::UpdateVisualIntensity(double dt) {
