@@ -14,14 +14,15 @@ class RewindAudio;
 
 struct RewindSettings {
     float historySeconds{8.0f};
-    int snapshotHz{30};
-    float rewindSpeed{1.35f};
+    int snapshotHz{24};
+    float rewindSpeed{1.25f};
     float quickSeconds{3.0f};
-    float radius{45.0f};
-    int maxEntities{48};
-    float rewindTimeScale{0.06f};
+    float radius{38.0f};
+    int maxEntities{32};
+    float rewindTimeScale{0.12f};
     bool restoreWorldHealth{false};
     bool haptics{true};
+    bool safeStart{true};
     std::string poseAnim{"IDLE_TAXI"};
     std::string poseIfp{"PED"};
 };
@@ -70,6 +71,9 @@ private:
     float m_visualIntensity{0.0f};
     bool m_rewinding{false};
     bool m_quickMode{false};
+    bool m_justBegan{false};
+    bool m_poseActive{false};
+    bool m_audioActive{false};
 };
 
 } // namespace noxxa
