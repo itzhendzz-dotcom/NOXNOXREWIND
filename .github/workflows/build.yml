@@ -1,4 +1,4 @@
-name: Build NOXXA REWIND v2.1.2
+name: Build NOXXA REWIND v2.1.3
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate v2.1.2 source
+      - name: Validate v2.1.3 source
         shell: bash
         run: |
           set -euxo pipefail
@@ -27,10 +27,13 @@ jobs:
           test -f v2/src/WorldState.cpp
           test -f v2/src/RewindCore.cpp
           test -f v2/src/RewindAudio.cpp
+          test -f v2/src/RewindUI.cpp
           test -f v2/scripts/bootstrap_deps.sh
           test -f v2/scripts/synth_audio.py
-          grep -q '2.1.2' v2/src/main.cpp
-          grep -q 'MaxRewindSeconds=13.003' v2/NoxxaRewind.ini.example
+          grep -q '2.1.3' v2/src/main.cpp
+          grep -q 'MaxRewindSeconds=13.000' v2/NoxxaRewind.ini.example
+          grep -q 'ButtonX=0.075' v2/NoxxaRewind.ini.example
+          grep -q 'DrawLeftTriangle' v2/src/RewindUI.cpp
           chmod +x v2/scripts/bootstrap_deps.sh v2/scripts/synth_audio.py
 
       - name: Generate CI fallback audio
@@ -73,7 +76,7 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra tests/timeline_test.cpp -o tests/timeline_test
           ./tests/timeline_test
 
-      - name: Package installable v2.1.2 CI fallback
+      - name: Package installable v2.1.3 CI fallback
         working-directory: v2
         shell: bash
         run: |
@@ -82,20 +85,20 @@ jobs:
           rm -rf release
           mkdir -p release/NoxxaRewind
           cp libs/armeabi-v7a/libNoxxaRewind.so release/
-          # Public CI artifact uses the generated fallback. The user's exact
+          # Public CI artifact keeps generated fallback audio. The user's exact
           # uploaded SFX is injected only into the private chat-delivered ZIP.
           cp generated_audio/rewind_loop.wav release/NoxxaRewind/rewind_user.wav
           cp NoxxaRewind.ini.example release/
           cp INSTALL.md release/
           cp README.md release/README-v2.md
-          printf '%s\n' 'NOXXA REWIND v2.1.2 - AUDIO-ONLY SAFE ISOLATION' > release/VERSION.txt
+          printf '%s\n' 'NOXXA REWIND v2.1.3 - 13S + TOP-LEFT VECTOR UI' > release/VERSION.txt
           cd release
-          zip -qr ../NOXXA_REWIND-v2.1.2.zip .
+          zip -qr ../NOXXA_REWIND-v2.1.3.zip .
 
-      - name: Upload v2.1.2 artifact
+      - name: Upload v2.1.3 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NOXXA_REWIND-v2.1.2
-          path: v2/NOXXA_REWIND-v2.1.2.zip
+          name: NOXXA_REWIND-v2.1.3
+          path: v2/NOXXA_REWIND-v2.1.3.zip
           if-no-files-found: error
           compression-level: 0
