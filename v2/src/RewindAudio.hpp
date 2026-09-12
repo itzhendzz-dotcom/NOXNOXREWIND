@@ -13,14 +13,15 @@ class RewindAudio {
 public:
     ~RewindAudio();
 
-    bool Init(const std::string& enterWav,
-              const std::string& bedWav,
-              const std::string& releaseWav);
+    // v2.1.2 uses one user-supplied rewind clip. The clip starts when rewind
+    // becomes active and is stopped immediately when rewind is released.
+    bool Init(const std::string& rewindWav);
     void StartRewind();
     void StopWithRelease();
     void Stop();
     void SetIntensity(float intensity01);
     bool Ready() const { return m_ready; }
+    float DurationSeconds() const;
 
 private:
     struct PcmClip {
@@ -33,9 +34,7 @@ private:
     bool Enqueue(const PcmClip& clip);
     void Destroy();
 
-    PcmClip m_enter;
-    PcmClip m_bed;
-    PcmClip m_release;
+    PcmClip m_rewind;
     bool m_ready{false};
 
     SLObjectItf m_engineObject{nullptr};
