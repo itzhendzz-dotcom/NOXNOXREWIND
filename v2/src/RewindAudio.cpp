@@ -42,7 +42,7 @@ bool RewindAudio::LoadPcm16Wav(const std::string& path, PcmClip& out) {
         f.read(id, 4);
         if (!f) break;
         const uint32_t size = ReadU32(f);
-        if (size > 16u * 1024u * 1024u) return false;
+        if (size > 32u * 1024u * 1024u) return false;
 
         if (!std::memcmp(id, "fmt ", 4)) {
             if (size < 16) return false;
@@ -74,18 +74,10 @@ bool RewindAudio::LoadPcm16Wav(const std::string& path, PcmClip& out) {
     return true;
 }
 
-bool RewindAudio::Init(const std::string& enterWav,
-                       const std::string& bedWav,
-                       const std::string& releaseWav) {
+bool RewindAudio::Init(const std::string& rewindWav) {
     Destroy();
-    if (!LoadPcm16Wav(enterWav, m_enter) ||
-        !LoadPcm16Wav(bedWav, m_bed) ||
-        !LoadPcm16Wav(releaseWav, m_release)) return false;
-
-    if (m_enter.sampleRate != m_bed.sampleRate ||
-        m_enter.sampleRate != m_release.sampleRate ||
-        m_enter.channels != m_bed.channels ||
-        m_enter.channels != m_release.channels) return false;
+    m_rewind = {};
+    if (!LoadPcm16Wav(rewindWav, m_rewind)) return false;
 
     if (slCreateEngine(&m_engineObject, 0, nullptr, 0, nullptr, nullptr) != SL_RESULT_SUCCESS) return false;
     if ((*m_engineObject)->Realize(m_engineObject, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) return false;
@@ -94,13 +86,13 @@ bool RewindAudio::Init(const std::string& enterWav,
     if ((*m_outputMixObject)->Realize(m_outputMixObject, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) return false;
 
     SLDataLocator_AndroidSimpleBufferQueue locQueue{SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 2};
-    const SLuint32 speakerMask = m_bed.channels == 2
+    const SLuint32 speakerMask = m_rewind.channels == 2
         ? (SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT)
         : SL_SPEAKER_FRONT_CENTER;
     SLDataFormat_PCM pcm{
         SL_DATAFORMAT_PCM,
-        m_bed.channels,
-        m_bed.sampleRate * 1000,
+        m_rewind.channels,
+        m_rewind.sampleRate * 1000,
         SL_PCMSAMPLEFORMAT_FIXED_16,
         SL_PCMSAMPLEFORMAT_FIXED_16,
         speakerMask,
@@ -119,7 +111,7 @@ bool RewindAudio::Init(const std::string& enterWav,
     (void)(*m_playerObject)->GetInterface(m_playerObject, SL_IID_VOLUME, &m_volume);
 
     m_ready = true;
-    SetIntensity(0.0f);
+    if (m_volume) (*m_volume)->SetVolumeLevel(m_volume, 0);
     return true;
 }
 
@@ -133,17 +125,13 @@ void RewindAudio::StartRewind() {
     if (!m_ready) return;
     (*m_player)->SetPlayState(m_player, SL_PLAYSTATE_STOPPED);
     (*m_queue)->Clear(m_queue);
-    Enqueue(m_enter);
-    Enqueue(m_bed);
+    if (!Enqueue(m_rewind)) return;
+    if (m_volume) (*m_volume)->SetVolumeLevel(m_volume, 0);
     (*m_player)->SetPlayState(m_player, SL_PLAYSTATE_PLAYING);
 }
 
 void RewindAudio::StopWithRelease() {
-    if (!m_ready) return;
-    (*m_player)->SetPlayState(m_player, SL_PLAYSTATE_STOPPED);
-    (*m_queue)->Clear(m_queue);
-    Enqueue(m_release);
-    (*m_player)->SetPlayState(m_player, SL_PLAYSTATE_PLAYING);
+    Stop();
 }
 
 void RewindAudio::Stop() {
@@ -153,10 +141,15 @@ void RewindAudio::Stop() {
 }
 
 void RewindAudio::SetIntensity(float intensity01) {
-    if (!m_ready || !m_volume) return;
-    intensity01 = std::clamp(intensity01, 0.0f, 1.0f);
-    const SLmillibel level = static_cast<SLmillibel>(-950.0f + intensity01 * 680.0f);
-    (*m_volume)->SetVolumeLevel(m_volume, level);
+    (void)intensity01;
+    // Preserve the user-supplied SFX at its original relative level.
+    if (m_ready && m_volume) (*m_volume)->SetVolumeLevel(m_volume, 0);
+}
+
+float RewindAudio::DurationSeconds() const {
+    if (m_rewind.sampleRate == 0 || m_rewind.channels == 0 || m_rewind.samples.empty()) return 0.0f;
+    return static_cast<float>(m_rewind.samples.size()) /
+           static_cast<float>(m_rewind.sampleRate * m_rewind.channels);
 }
 
 void RewindAudio::Destroy() {
@@ -177,6 +170,7 @@ void RewindAudio::Destroy() {
     m_volume = nullptr;
     m_queue = nullptr;
     m_engine = nullptr;
+    m_rewind = {};
 }
 
 } // namespace noxxa
