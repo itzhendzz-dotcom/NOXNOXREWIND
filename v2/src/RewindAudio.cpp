@@ -1,7 +1,6 @@
 #include "RewindAudio.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <cstring>
 #include <fstream>
 
@@ -22,9 +21,7 @@ uint32_t ReadU32(std::ifstream& f) {
 
 } // namespace
 
-RewindAudio::~RewindAudio() {
-    Destroy();
-}
+RewindAudio::~RewindAudio() { Destroy(); }
 
 bool RewindAudio::LoadPcm16Wav(const std::string& path, PcmClip& out) {
     std::ifstream f(path, std::ios::binary);
@@ -45,8 +42,10 @@ bool RewindAudio::LoadPcm16Wav(const std::string& path, PcmClip& out) {
         f.read(id, 4);
         if (!f) break;
         const uint32_t size = ReadU32(f);
+        if (size > 16u * 1024u * 1024u) return false;
 
         if (!std::memcmp(id, "fmt ", 4)) {
+            if (size < 16) return false;
             format = ReadU16(f);
             channels = ReadU16(f);
             sampleRate = ReadU32(f);
@@ -56,14 +55,15 @@ bool RewindAudio::LoadPcm16Wav(const std::string& path, PcmClip& out) {
             if (size > 16) f.seekg(size - 16, std::ios::cur);
         } else if (!std::memcmp(id, "data", 4)) {
             pcmBytes.resize(size);
-            f.read(reinterpret_cast<char*>(pcmBytes.data()), size);
+            f.read(reinterpret_cast<char*>(pcmBytes.data()), static_cast<std::streamsize>(size));
         } else {
             f.seekg(size, std::ios::cur);
         }
-        if (size & 1) f.seekg(1, std::ios::cur);
+        if (size & 1u) f.seekg(1, std::ios::cur);
     }
 
-    if (format != 1 || bits != 16 || (channels != 1 && channels != 2) || sampleRate == 0 || pcmBytes.empty()) {
+    if (format != 1 || bits != 16 || (channels != 1 && channels != 2) ||
+        sampleRate < 8000 || sampleRate > 96000 || pcmBytes.empty() || (pcmBytes.size() & 1u)) {
         return false;
     }
 
@@ -75,37 +75,32 @@ bool RewindAudio::LoadPcm16Wav(const std::string& path, PcmClip& out) {
 }
 
 bool RewindAudio::Init(const std::string& enterWav,
-                       const std::string& loopWav,
+                       const std::string& bedWav,
                        const std::string& releaseWav) {
     Destroy();
     if (!LoadPcm16Wav(enterWav, m_enter) ||
-        !LoadPcm16Wav(loopWav, m_loop) ||
-        !LoadPcm16Wav(releaseWav, m_release)) {
-        return false;
-    }
+        !LoadPcm16Wav(bedWav, m_bed) ||
+        !LoadPcm16Wav(releaseWav, m_release)) return false;
 
-    if (m_enter.sampleRate != m_loop.sampleRate ||
+    if (m_enter.sampleRate != m_bed.sampleRate ||
         m_enter.sampleRate != m_release.sampleRate ||
-        m_enter.channels != m_loop.channels ||
-        m_enter.channels != m_release.channels) {
-        return false;
-    }
+        m_enter.channels != m_bed.channels ||
+        m_enter.channels != m_release.channels) return false;
 
     if (slCreateEngine(&m_engineObject, 0, nullptr, 0, nullptr, nullptr) != SL_RESULT_SUCCESS) return false;
     if ((*m_engineObject)->Realize(m_engineObject, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) return false;
     if ((*m_engineObject)->GetInterface(m_engineObject, SL_IID_ENGINE, &m_engine) != SL_RESULT_SUCCESS) return false;
-
     if ((*m_engine)->CreateOutputMix(m_engine, &m_outputMixObject, 0, nullptr, nullptr) != SL_RESULT_SUCCESS) return false;
     if ((*m_outputMixObject)->Realize(m_outputMixObject, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) return false;
 
-    SLDataLocator_AndroidSimpleBufferQueue locQueue{SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 3};
-    const SLuint32 speakerMask = m_loop.channels == 2
+    SLDataLocator_AndroidSimpleBufferQueue locQueue{SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 2};
+    const SLuint32 speakerMask = m_bed.channels == 2
         ? (SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT)
         : SL_SPEAKER_FRONT_CENTER;
     SLDataFormat_PCM pcm{
         SL_DATAFORMAT_PCM,
-        m_loop.channels,
-        m_loop.sampleRate * 1000,
+        m_bed.channels,
+        m_bed.sampleRate * 1000,
         SL_PCMSAMPLEFORMAT_FIXED_16,
         SL_PCMSAMPLEFORMAT_FIXED_16,
         speakerMask,
@@ -122,45 +117,30 @@ bool RewindAudio::Init(const std::string& enterWav,
     if ((*m_playerObject)->GetInterface(m_playerObject, SL_IID_PLAY, &m_player) != SL_RESULT_SUCCESS) return false;
     if ((*m_playerObject)->GetInterface(m_playerObject, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &m_queue) != SL_RESULT_SUCCESS) return false;
     (void)(*m_playerObject)->GetInterface(m_playerObject, SL_IID_VOLUME, &m_volume);
-    if ((*m_queue)->RegisterCallback(m_queue, BufferCallback, this) != SL_RESULT_SUCCESS) return false;
 
     m_ready = true;
     SetIntensity(0.0f);
     return true;
 }
 
-void RewindAudio::BufferCallback(SLAndroidSimpleBufferQueueItf, void* context) {
-    static_cast<RewindAudio*>(context)->OnBufferFinished();
-}
-
-void RewindAudio::OnBufferFinished() {
-    if (m_mode.load(std::memory_order_relaxed) == Mode::Rewinding) {
-        m_callbacksSinceStart.fetch_add(1, std::memory_order_relaxed);
-        Enqueue(m_loop);
-    }
-}
-
 bool RewindAudio::Enqueue(const PcmClip& clip) {
     if (!m_queue || clip.samples.empty()) return false;
-    return (*m_queue)->Enqueue(m_queue,
-                               clip.samples.data(),
+    return (*m_queue)->Enqueue(m_queue, clip.samples.data(),
                                clip.samples.size() * sizeof(int16_t)) == SL_RESULT_SUCCESS;
 }
 
 void RewindAudio::StartRewind() {
     if (!m_ready) return;
-    m_mode.store(Mode::Stopped, std::memory_order_relaxed);
+    (*m_player)->SetPlayState(m_player, SL_PLAYSTATE_STOPPED);
     (*m_queue)->Clear(m_queue);
-    m_callbacksSinceStart.store(0, std::memory_order_relaxed);
     Enqueue(m_enter);
-    Enqueue(m_loop);
-    m_mode.store(Mode::Rewinding, std::memory_order_relaxed);
+    Enqueue(m_bed);
     (*m_player)->SetPlayState(m_player, SL_PLAYSTATE_PLAYING);
 }
 
 void RewindAudio::StopWithRelease() {
     if (!m_ready) return;
-    m_mode.store(Mode::Release, std::memory_order_relaxed);
+    (*m_player)->SetPlayState(m_player, SL_PLAYSTATE_STOPPED);
     (*m_queue)->Clear(m_queue);
     Enqueue(m_release);
     (*m_player)->SetPlayState(m_player, SL_PLAYSTATE_PLAYING);
@@ -168,21 +148,19 @@ void RewindAudio::StopWithRelease() {
 
 void RewindAudio::Stop() {
     if (!m_ready) return;
-    m_mode.store(Mode::Stopped, std::memory_order_relaxed);
-    (*m_queue)->Clear(m_queue);
     (*m_player)->SetPlayState(m_player, SL_PLAYSTATE_STOPPED);
+    (*m_queue)->Clear(m_queue);
 }
 
 void RewindAudio::SetIntensity(float intensity01) {
     if (!m_ready || !m_volume) return;
     intensity01 = std::clamp(intensity01, 0.0f, 1.0f);
-    const SLmillibel level = static_cast<SLmillibel>(-650.0f + intensity01 * 500.0f);
+    const SLmillibel level = static_cast<SLmillibel>(-950.0f + intensity01 * 680.0f);
     (*m_volume)->SetVolumeLevel(m_volume, level);
 }
 
 void RewindAudio::Destroy() {
     m_ready = false;
-    m_mode.store(Mode::Stopped, std::memory_order_relaxed);
     if (m_playerObject) {
         (*m_playerObject)->Destroy(m_playerObject);
         m_playerObject = nullptr;
