@@ -3,7 +3,6 @@
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
 
-#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -15,7 +14,7 @@ public:
     ~RewindAudio();
 
     bool Init(const std::string& enterWav,
-              const std::string& loopWav,
+              const std::string& bedWav,
               const std::string& releaseWav);
     void StartRewind();
     void StopWithRelease();
@@ -30,23 +29,13 @@ private:
         std::vector<int16_t> samples;
     };
 
-    enum class Mode : uint8_t {
-        Stopped,
-        Rewinding,
-        Release,
-    };
-
     static bool LoadPcm16Wav(const std::string& path, PcmClip& out);
-    static void BufferCallback(SLAndroidSimpleBufferQueueItf queue, void* context);
-    void OnBufferFinished();
     bool Enqueue(const PcmClip& clip);
     void Destroy();
 
     PcmClip m_enter;
-    PcmClip m_loop;
+    PcmClip m_bed;
     PcmClip m_release;
-    std::atomic<Mode> m_mode{Mode::Stopped};
-    std::atomic<int> m_callbacksSinceStart{0};
     bool m_ready{false};
 
     SLObjectItf m_engineObject{nullptr};
