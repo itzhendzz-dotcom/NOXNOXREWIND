@@ -1,5 +1,5 @@
 [Rewind]
-; V3: exact gameplay cap. Keep the history slightly longer than the cap.
+; V3.1 CAUSAL: exact gameplay cap. History stays slightly longer than the cap.
 HistorySeconds=13.35
 SnapshotHz=24
 RewindSpeed=1.00
@@ -7,22 +7,22 @@ QuickRewindSeconds=3.0
 MaxRewindSeconds=13.00
 
 [World]
-; Conservative defaults for Android stability and 120 Hz gameplay.
+; Causal playback freezes GTA's forward simulation. The rewind cursor itself is
+; real-time based, so TimeScale=0 does NOT freeze the rewind.
 Radius=35.0
 MaxEntities=28
-TimeScale=0.10
-RestoreHealth=0
+TimeScale=0.00
+; Historical health/armour/vehicle health are restored for surviving entities.
+RestoreHealth=1
 
 [Anchor]
-; IMPORTANT: the old animation task path was the only area correlated with the
-; crash-on-press regression. V3 ships the safe one-shot gesture engine but keeps
-; it OFF by default. Enable only after the core build is confirmed stable.
+; Keep pose disabled until the animation layer is proven separately. No task
+; tree flush/clear is used by the causal core.
 PoseEnabled=0
 PoseAnim=IDLE_TAXI
 PoseIFP=PED
 
 [UI]
-; compact top-left control
 ButtonX=0.060
 ButtonY=0.105
 ButtonScale=0.88
@@ -32,6 +32,6 @@ Strength=1.00
 Haptics=0
 
 [Safety]
-; Input is armed first; world/audio are activated on later game frames.
+; Input arms first; simulation freeze/audio/world playback start on later frames.
 ArmFrames=2
 RecoveryFrames=2
