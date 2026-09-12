@@ -1,0 +1,68 @@
+name: Build NOXXA REWIND
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'NOXXA_REWIND_SOURCE_v0.1.0.zip'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract source package
+        run: |
+          rm -rf NOXXA_REWIND
+          unzip -q -o NOXXA_REWIND_SOURCE_v0.1.0.zip
+          test -f NOXXA_REWIND/Android.mk
+          test -f NOXXA_REWIND/src/main.cpp
+          chmod +x NOXXA_REWIND/scripts/bootstrap_deps.sh
+
+      - name: Fetch pinned AML dependencies
+        working-directory: NOXXA_REWIND
+        run: ./scripts/bootstrap_deps.sh
+
+      - name: Set up Android NDK r24
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r24
+          add-to-path: true
+
+      - name: Build armeabi-v7a mod
+        working-directory: NOXXA_REWIND
+        run: ndk-build -j2
+
+      - name: Run timeline unit test
+        working-directory: NOXXA_REWIND
+        run: |
+          g++ -std=c++17 -O2 tests/timeline_test.cpp -o tests/timeline_test
+          ./tests/timeline_test
+
+      - name: Package installable mod
+        working-directory: NOXXA_REWIND
+        run: |
+          set -e
+          test -f libs/armeabi-v7a/libNoxxaRewind.so
+          rm -rf release
+          mkdir -p release/NoxxaRewind
+          cp libs/armeabi-v7a/libNoxxaRewind.so release/
+          cp assets/rewind_button.png release/NoxxaRewind/
+          cp audio/rewind_loop.wav release/NoxxaRewind/
+          cp audio/rewind_release.wav release/NoxxaRewind/
+          cp NoxxaRewind.ini.example release/
+          cp INSTALL.md release/
+          cd release
+          zip -r ../NOXXA_REWIND-v0.1.0.zip .
+
+      - name: Upload NOXXA REWIND artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NOXXA_REWIND-v0.1.0
+          path: NOXXA_REWIND/NOXXA_REWIND-v0.1.0.zip
+          if-no-files-found: error
