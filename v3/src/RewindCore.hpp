@@ -21,8 +21,10 @@ struct RewindSettings {
     float maxRewindSeconds{13.0f};
     float radius{35.0f};
     int maxEntities{28};
-    float rewindTimeScale{0.10f};
-    bool restoreWorldHealth{false};
+    // V3.1 causal playback freezes GTA simulation. Our rewind cursor still
+    // moves from steady_clock real time, so zero here does not freeze rewind.
+    float rewindTimeScale{0.0f};
+    bool restoreWorldHealth{true};
     bool haptics{false};
     bool poseEnabled{false};
     int armFrames{2};
@@ -50,8 +52,6 @@ public:
     float VisualIntensity() const { return m_visualIntensity; }
     std::size_t CurrentEntityCount() const;
 
-    // Read-only rendering hooks. FX gets historical samples but never owns,
-    // mutates, or retains them beyond the current draw call.
     const WorldFrame* FxCurrentFrame() const {
         return m_phase == RewindPhase::Rewinding ? m_timeline.Current() : nullptr;
     }

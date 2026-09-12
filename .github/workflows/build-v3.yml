@@ -1,9 +1,9 @@
-name: Build NOXXA REWIND v3
+name: Build NOXXA REWIND v3.1 CAUSAL
 
 on:
   workflow_dispatch:
   push:
-    branches: [ v3-rebuild ]
+    branches: [ main, v3.1-causal-rewind ]
     paths:
       - 'v3/**'
       - '.github/workflows/build-v3.yml'
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate V3 source
+      - name: Validate V3.1 source
         shell: bash
         run: |
           set -euxo pipefail
@@ -26,12 +26,16 @@ jobs:
           test -f v3/src/main.cpp
           test -f v3/src/RewindCore.cpp
           test -f v3/src/WorldState.cpp
+          test -f v3/src/CausalTime.hpp
           test -f v3/src/RewindUI.cpp
           test -f v3/src/TemporalFX.cpp
           test -f v3/src/RewindAudio.cpp
-          grep -q '3.0.0' v3/src/main.cpp
-          grep -q 'MaxRewindSeconds=13.00' v3/NoxxaRewind.ini.example
-          grep -q 'PoseEnabled=0' v3/NoxxaRewind.ini.example
+          test -f v3/tests/causal_time_test.cpp
+          grep -q '3.1.0' v3/src/main.cpp
+          grep -q 'TimeScale=0.00' v3/NoxxaRewind.ini.example
+          grep -q 'RestoreHealth=1' v3/NoxxaRewind.ini.example
+          grep -q 'CommitCausalState' v3/src/WorldState.cpp
+          grep -q 'ClearTaskEventResponse' v3/src/WorldState.cpp
           chmod +x v3/scripts/bootstrap_deps.sh v3/scripts/synth_audio.py
 
       - name: Generate CI fallback audio
@@ -74,7 +78,7 @@ jobs:
           ndk-version: r24
           add-to-path: true
 
-      - name: Build armeabi-v7a V3
+      - name: Build armeabi-v7a V3.1
         working-directory: v3
         shell: bash
         run: |
@@ -91,13 +95,15 @@ jobs:
             V=1 \
             -j2
 
-      - name: Run timeline unit test
+      - name: Run core regression tests
         working-directory: v3
         shell: bash
         run: |
           set -euxo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra tests/timeline_test.cpp -o tests/timeline_test
           ./tests/timeline_test
+          g++ -std=c++17 -O2 -Wall -Wextra tests/causal_time_test.cpp -o tests/causal_time_test
+          ./tests/causal_time_test
 
       - name: Binary sanity checks
         working-directory: v3
@@ -107,9 +113,10 @@ jobs:
           test -s libs/armeabi-v7a/libNoxxaRewind.so
           file libs/armeabi-v7a/libNoxxaRewind.so
           readelf -h libs/armeabi-v7a/libNoxxaRewind.so | grep -E 'Class:|Machine:'
-          strings libs/armeabi-v7a/libNoxxaRewind.so | grep -q 'NOXXA REWIND v3'
+          strings libs/armeabi-v7a/libNoxxaRewind.so | grep -q 'NOXXA REWIND v3.1 CAUSAL'
+          strings libs/armeabi-v7a/libNoxxaRewind.so | grep -q 'futureEventResponsesCleared'
 
-      - name: Package V3 CI build
+      - name: Package V3.1 CI build
         working-directory: v3
         shell: bash
         run: |
@@ -121,14 +128,14 @@ jobs:
           cp NoxxaRewind.ini.example release/
           cp INSTALL.md release/
           cp README.md release/README-v3.md
-          printf '%s\n' 'NOXXA REWIND v3.0.0 - DEEP REBUILD' > release/VERSION.txt
+          printf '%s\n' 'NOXXA REWIND v3.1.0 - CAUSAL REWIND' > release/VERSION.txt
           cd release
-          zip -qr ../NOXXA_REWIND-v3.0.0.zip .
+          zip -qr ../NOXXA_REWIND-v3.1.0.zip .
 
-      - name: Upload V3 artifact
+      - name: Upload V3.1 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NOXXA_REWIND-v3.0.0
-          path: v3/NOXXA_REWIND-v3.0.0.zip
+          name: NOXXA_REWIND-v3.1.0
+          path: v3/NOXXA_REWIND-v3.1.0.zip
           if-no-files-found: error
           compression-level: 0
