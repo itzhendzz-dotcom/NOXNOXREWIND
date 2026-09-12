@@ -1,8 +1,11 @@
 [Rewind]
-HistorySeconds=8.0
+; v2.1.2 syncs the maximum hold duration to rewind_user.wav.
+; The supplied clip is 13.003 seconds, so defaults below are matched 1:1.
+HistorySeconds=13.25
 SnapshotHz=24
-RewindSpeed=1.25
+RewindSpeed=1.00
 QuickRewindSeconds=3.0
+MaxRewindSeconds=13.003
 
 [World]
 Radius=38.0
@@ -11,7 +14,8 @@ TimeScale=0.12
 RestoreHealth=0
 
 [Anchor]
-; Experimental pose path. SafeStart=1 keeps this disabled while we isolate crash-on-press.
+; Pose is intentionally disabled in v2.1.2 while the previous task-tree crash
+; is being isolated. The one-hand pose will return through a safer path.
 PoseAnim=IDLE_TAXI
 PoseIFP=PED
 
@@ -21,9 +25,8 @@ ButtonY=0.62
 ButtonScale=1.0
 
 [Effects]
-Haptics=1
+Haptics=0
 
 [Debug]
-; IMPORTANT: leave this at 1 for v2.1.1. It disables pose/audio startup on the touch frame
-; and defers the first world mutation by one game frame.
+; Safe-start is hard-locked ON in v2.1.2.
 SafeStart=1
