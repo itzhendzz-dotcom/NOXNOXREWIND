@@ -11,7 +11,7 @@ TimeScale=0.12
 RestoreHealth=0
 
 [Anchor]
-; One-hand vanilla fallback. v2.1 forcibly tears the task down on release.
+; Experimental pose path. SafeStart=1 keeps this disabled while we isolate crash-on-press.
 PoseAnim=IDLE_TAXI
 PoseIFP=PED
 
@@ -22,3 +22,8 @@ ButtonScale=1.0
 
 [Effects]
 Haptics=1
+
+[Debug]
+; IMPORTANT: leave this at 1 for v2.1.1. It disables pose/audio startup on the touch frame
+; and defers the first world mutation by one game frame.
+SafeStart=1
