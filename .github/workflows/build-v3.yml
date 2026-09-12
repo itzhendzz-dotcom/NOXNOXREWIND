@@ -1,0 +1,134 @@
+name: Build NOXXA REWIND v3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ v3-rebuild ]
+    paths:
+      - 'v3/**'
+      - '.github/workflows/build-v3.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate V3 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -f v3/Android.mk
+          test -f v3/Application.mk
+          test -f v3/src/main.cpp
+          test -f v3/src/RewindCore.cpp
+          test -f v3/src/WorldState.cpp
+          test -f v3/src/RewindUI.cpp
+          test -f v3/src/TemporalFX.cpp
+          test -f v3/src/RewindAudio.cpp
+          grep -q '3.0.0' v3/src/main.cpp
+          grep -q 'MaxRewindSeconds=13.00' v3/NoxxaRewind.ini.example
+          grep -q 'PoseEnabled=0' v3/NoxxaRewind.ini.example
+          chmod +x v3/scripts/bootstrap_deps.sh v3/scripts/synth_audio.py
+
+      - name: Generate CI fallback audio
+        working-directory: v3
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 scripts/synth_audio.py
+          python3 - <<'PY'
+          import wave
+          from pathlib import Path
+          src = Path('generated_audio/rewind_loop.wav')
+          dst = Path('generated_audio/rewind_user.wav')
+          with wave.open(str(src), 'rb') as r:
+              params = r.getparams()
+              frames = r.readframes(r.getnframes())
+          frame_bytes = params.nchannels * params.sampwidth
+          source_frames = len(frames) // frame_bytes
+          target_frames = int(params.framerate * 13.0)
+          if source_frames <= 0:
+              raise RuntimeError('empty fallback audio')
+          reps = (target_frames + source_frames - 1) // source_frames
+          out = (frames * reps)[:target_frames * frame_bytes]
+          with wave.open(str(dst), 'wb') as w:
+              w.setparams(params)
+              w.writeframes(out)
+          with wave.open(str(dst), 'rb') as c:
+              duration = c.getnframes() / c.getframerate()
+              assert abs(duration - 13.0) < 0.002, duration
+          print('fallback audio exact duration:', duration)
+          PY
+
+      - name: Fetch pinned AML dependencies
+        working-directory: v3
+        run: ./scripts/bootstrap_deps.sh
+
+      - name: Set up Android NDK r24
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r24
+          add-to-path: true
+
+      - name: Build armeabi-v7a V3
+        working-directory: v3
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ndk-build clean \
+            NDK_PROJECT_PATH=. \
+            APP_BUILD_SCRIPT=Android.mk \
+            NDK_APPLICATION_MK=Application.mk || true
+          ndk-build \
+            NDK_PROJECT_PATH=. \
+            APP_BUILD_SCRIPT=Android.mk \
+            NDK_APPLICATION_MK=Application.mk \
+            APP_CPPFLAGS='-std=c++17 -fexceptions -include math.h -include float.h' \
+            V=1 \
+            -j2
+
+      - name: Run timeline unit test
+        working-directory: v3
+        shell: bash
+        run: |
+          set -euxo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra tests/timeline_test.cpp -o tests/timeline_test
+          ./tests/timeline_test
+
+      - name: Binary sanity checks
+        working-directory: v3
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -s libs/armeabi-v7a/libNoxxaRewind.so
+          file libs/armeabi-v7a/libNoxxaRewind.so
+          readelf -h libs/armeabi-v7a/libNoxxaRewind.so | grep -E 'Class:|Machine:'
+          strings libs/armeabi-v7a/libNoxxaRewind.so | grep -q 'NOXXA REWIND v3'
+
+      - name: Package V3 CI build
+        working-directory: v3
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf release
+          mkdir -p release/NoxxaRewind
+          cp libs/armeabi-v7a/libNoxxaRewind.so release/
+          cp generated_audio/rewind_user.wav release/NoxxaRewind/
+          cp NoxxaRewind.ini.example release/
+          cp INSTALL.md release/
+          cp README.md release/README-v3.md
+          printf '%s\n' 'NOXXA REWIND v3.0.0 - DEEP REBUILD' > release/VERSION.txt
+          cd release
+          zip -qr ../NOXXA_REWIND-v3.0.0.zip .
+
+      - name: Upload V3 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NOXXA_REWIND-v3.0.0
+          path: v3/NOXXA_REWIND-v3.0.0.zip
+          if-no-files-found: error
+          compression-level: 0
