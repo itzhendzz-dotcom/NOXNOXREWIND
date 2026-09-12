@@ -1,11 +1,11 @@
 [Rewind]
-; v2.1.2 syncs the maximum hold duration to rewind_user.wav.
-; The supplied clip is 13.003 seconds, so defaults below are matched 1:1.
+; v2.1.3 locks manual rewind to a clean 13.000-second window.
+; History keeps a small guard margin so the last snapshot is never clipped by rounding.
 HistorySeconds=13.25
 SnapshotHz=24
 RewindSpeed=1.00
 QuickRewindSeconds=3.0
-MaxRewindSeconds=13.003
+MaxRewindSeconds=13.000
 
 [World]
 Radius=38.0
@@ -14,19 +14,19 @@ TimeScale=0.12
 RestoreHealth=0
 
 [Anchor]
-; Pose is intentionally disabled in v2.1.2 while the previous task-tree crash
-; is being isolated. The one-hand pose will return through a safer path.
+; Pose remains disabled on the safe path while the previous task-tree crash
+; is kept isolated from the stable world+audio rewind core.
 PoseAnim=IDLE_TAXI
 PoseIFP=PED
 
 [UI]
-ButtonX=0.88
-ButtonY=0.62
-ButtonScale=1.0
+; Safe top-left placement for landscape Android HUDs.
+ButtonX=0.075
+ButtonY=0.105
+ButtonScale=0.92
 
 [Effects]
 Haptics=0
 
 [Debug]
-; Safe-start is hard-locked ON in v2.1.2.
 SafeStart=1
