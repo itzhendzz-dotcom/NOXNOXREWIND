@@ -1,4 +1,4 @@
-name: Build NOXXA REWIND v2.1
+name: Build NOXXA REWIND v2.1.1
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate v2.1 source
+      - name: Validate v2.1.1 source
         shell: bash
         run: |
           set -euxo pipefail
@@ -28,6 +28,8 @@ jobs:
           test -f v2/src/RewindCore.cpp
           test -f v2/scripts/bootstrap_deps.sh
           test -f v2/scripts/synth_audio.py
+          grep -q '2.1.1' v2/src/main.cpp
+          grep -q 'SafeStart' v2/NoxxaRewind.ini.example
           chmod +x v2/scripts/bootstrap_deps.sh v2/scripts/synth_audio.py
 
       - name: Generate original temporal audio
@@ -90,7 +92,7 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra tests/timeline_test.cpp -o tests/timeline_test
           ./tests/timeline_test
 
-      - name: Package installable v2.1
+      - name: Package installable v2.1.1
         working-directory: v2
         shell: bash
         run: |
@@ -105,14 +107,14 @@ jobs:
           cp NoxxaRewind.ini.example release/
           cp INSTALL.md release/
           cp README.md release/README-v2.md
-          printf '%s\n' 'NOXXA REWIND v2.1.0 - STABILITY + FEEL PASS' > release/VERSION.txt
+          printf '%s\n' 'NOXXA REWIND v2.1.1 - SAFE START CRASH ISOLATION' > release/VERSION.txt
           cd release
-          zip -qr ../NOXXA_REWIND-v2.1.0.zip .
+          zip -qr ../NOXXA_REWIND-v2.1.1.zip .
 
-      - name: Upload v2.1 artifact
+      - name: Upload v2.1.1 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NOXXA_REWIND-v2.1.0
-          path: v2/NOXXA_REWIND-v2.1.0.zip
+          name: NOXXA_REWIND-v2.1.1
+          path: v2/NOXXA_REWIND-v2.1.1.zip
           if-no-files-found: error
           compression-level: 0
