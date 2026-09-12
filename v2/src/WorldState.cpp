@@ -161,7 +161,6 @@ bool WorldStateAdapter::ApplyAnchor(const PlayerAnchor& anchor) const {
     player->m_fArmour = anchor.armour;
     player->m_fCurrentRotation = anchor.currentRotation;
     player->m_fAimingRotation = anchor.aimingRotation;
-    player->bUsesCollision = false;
     return true;
 }
 
@@ -171,28 +170,29 @@ void WorldStateAdapter::BeginAnchorPose(const char* anim, const char* ifp) const
     const int pedRef = CPools::GetPedRef(player);
     if (pedRef < 0) return;
 
-    Command<Commands::CLEAR_CHAR_TASKS_IMMEDIATELY>(pedRef);
+    // IMPORTANT: do not clear the player's task tree here. Clearing tasks on the
+    // same input frame can destroy task allocations immediately and was the main
+    // suspect in the Scudo crash-on-press report.
     Command<Commands::TASK_PLAY_ANIM>(
         pedRef,
         (anim && *anim) ? anim : "IDLE_TAXI",
         (ifp && *ifp) ? ifp : "PED",
-        3.2f,
+        2.2f,
         0,
         0,
         0,
-        1,
-        900
+        0,
+        650
     );
 }
 
 void WorldStateAdapter::EndAnchorPose() const {
     CPlayerPed* player = FindPlayerPed(-1);
     if (!player) return;
-    const int pedRef = CPools::GetPedRef(player);
-    if (pedRef >= 0) Command<Commands::CLEAR_CHAR_TASKS_IMMEDIATELY>(pedRef);
+    // No CLEAR_CHAR_TASKS_IMMEDIATELY here either. Let the short non-looping
+    // animation expire naturally; force only safe visual state recovery.
     player->RestartNonPartialAnims();
     player->RestoreHeadingRate();
-    player->SetIdle();
 }
 
 bool WorldStateAdapter::CaptureWorld(WorldFrame& out, uint64_t sequence) const {
