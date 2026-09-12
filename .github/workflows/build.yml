@@ -6,6 +6,7 @@ on:
     branches: [ main ]
     paths:
       - 'NOXXA_REWIND_SOURCE_v0.1.0.zip'
+      - 'overlay-v0.1.1/**'
       - '.github/workflows/build.yml'
 
 jobs:
@@ -17,17 +18,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract and validate source
+      - name: Extract and apply v0.1.1 native UI overlay
         shell: bash
         run: |
           set -euxo pipefail
           rm -rf NOXXA_REWIND
           unzip -q -o NOXXA_REWIND_SOURCE_v0.1.0.zip
+          cp overlay-v0.1.1/src/main.cpp NOXXA_REWIND/src/main.cpp
+          cp overlay-v0.1.1/src/RewindUI.hpp NOXXA_REWIND/src/RewindUI.hpp
+          cp overlay-v0.1.1/src/RewindUI.cpp NOXXA_REWIND/src/RewindUI.cpp
           test -f NOXXA_REWIND/Android.mk
           test -f NOXXA_REWIND/Application.mk
-          test -f NOXXA_REWIND/src/main.cpp
           test -f NOXXA_REWIND/src/GameState.cpp
           test -f NOXXA_REWIND/tests/timeline_test.cpp
+          grep -q '0.1.1' NOXXA_REWIND/src/main.cpp
           chmod +x NOXXA_REWIND/scripts/bootstrap_deps.sh
 
       - name: Fetch pinned AML dependencies
@@ -53,9 +57,6 @@ jobs:
             APP_BUILD_SCRIPT=Android.mk \
             NDK_APPLICATION_MK=Application.mk || true
 
-          # aml-psdk's Vector.h expects the C math/float symbols in global scope.
-          # Force them before every C++ translation unit so the project does not
-          # depend on fragile include ordering.
           ndk-build \
             NDK_PROJECT_PATH=. \
             APP_BUILD_SCRIPT=Android.mk \
@@ -81,18 +82,19 @@ jobs:
           rm -rf release
           mkdir -p release/NoxxaRewind
           cp libs/armeabi-v7a/libNoxxaRewind.so release/
-          cp assets/rewind_button.png release/NoxxaRewind/
+          cp assets/rewind_button.png release/NoxxaRewind/ || true
           cp audio/rewind_loop.wav release/NoxxaRewind/
           cp audio/rewind_release.wav release/NoxxaRewind/
           cp NoxxaRewind.ini.example release/
           cp INSTALL.md release/
+          printf '%s\n' 'NOXXA REWIND v0.1.1 - native HUD/touch hotfix' > release/VERSION.txt
           cd release
-          zip -qr ../NOXXA_REWIND-v0.1.0.zip .
+          zip -qr ../NOXXA_REWIND-v0.1.1.zip .
 
       - name: Upload NOXXA REWIND artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NOXXA_REWIND-v0.1.0
-          path: NOXXA_REWIND/NOXXA_REWIND-v0.1.0.zip
+          name: NOXXA_REWIND-v0.1.1
+          path: NOXXA_REWIND/NOXXA_REWIND-v0.1.1.zip
           if-no-files-found: error
           compression-level: 0
