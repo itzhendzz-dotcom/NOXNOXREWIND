@@ -35,6 +35,43 @@ struct PhysicalState {
     CVector turnSpeed{};
 };
 
+struct PedBehaviorState {
+    uint32_t pedState{0};
+    int32_t moveState{0};
+    uint32_t moveStateAnim{0};
+    uint32_t storedMoveState{0};
+    uint32_t animGroup{0};
+    uint8_t createdBy{0};
+    uint8_t selectedWeaponSlot{0};
+    uint16_t flags{0};
+
+    int32_t activeTaskType{-1};
+    int32_t tempEventTaskType{-1};
+    int32_t nonTempEventTaskType{-1};
+
+    int32_t weaponType{-1};
+    int32_t weaponState{-1};
+    uint32_t ammoInClip{0};
+    uint32_t ammoTotal{0};
+
+    // Stored relative to the historical frame time, never as raw old absolute
+    // CTimer values. These are rebased when the past becomes the new present.
+    uint32_t attackDelayMs{0};
+    uint32_t weaponNextShotDelayMs{0};
+    uint32_t lastDamageAgeMs{0};
+};
+
+struct VehicleBehaviorState {
+    float steerAngle{0.0f};
+    float secondSteerAngle{0.0f};
+    float gasPedal{0.0f};
+    float brakePedal{0.0f};
+    uint8_t currentGear{0};
+    bool engineOn{false};
+    bool handbrakeOn{false};
+    bool lightsOn{false};
+};
+
 struct EntitySnapshot {
     EntityKind kind{EntityKind::Ped};
     int32_t ref{-1};
@@ -44,6 +81,8 @@ struct EntitySnapshot {
     float armour{0.0f};
     float currentRotation{0.0f};
     float aimingRotation{0.0f};
+    PedBehaviorState pedBehavior{};
+    VehicleBehaviorState vehicleBehavior{};
 };
 
 struct WorldFrame {
@@ -66,7 +105,7 @@ struct PlayerAnchor {
 struct WorldCaptureSettings {
     float radius{35.0f};
     std::size_t maxEntities{28};
-    bool restoreHealth{false};
+    bool restoreHealth{true};
 };
 
 class WorldStateAdapter {
@@ -80,6 +119,13 @@ public:
     void QuiesceWorld(const WorldFrame* frame) const;
     void QuiescePlayer() const;
     bool ApplyWorldInterpolated(const WorldFrame& newer, const WorldFrame& older, float alpha) const;
+
+    // Called only after rewind release/commit. This does not deserialize task
+    // pointers. It removes event-response tasks that provably belong to the
+    // discarded future, restores historical scalar behaviour, and rebases
+    // timers onto the new present.
+    int CommitCausalState(const WorldFrame& selectedPast) const;
+
     bool PlayerCanAnchor() const;
     bool IsPlayerInVehicle() const;
     static CVector GetPhysicalPosition(const CPhysical* physical);
@@ -93,6 +139,12 @@ private:
     static CVector LerpVector(const CVector& a, const CVector& b, float t);
     static float LerpAngle(float a, float b, float t);
     static const EntitySnapshot* FindSnapshot(const WorldFrame& frame, EntityKind kind, int32_t ref);
+
+    static void CapturePedBehavior(CPed* ped, uint32_t frameTimeMs, PedBehaviorState& out);
+    static void ApplyPedBehaviorPlayback(CPed* ped, const PedBehaviorState& state, uint32_t nowMs);
+    static void CaptureVehicleBehavior(CVehicle* vehicle, VehicleBehaviorState& out);
+    static void ApplyVehicleBehavior(CVehicle* vehicle, const VehicleBehaviorState& state);
+
     bool ApplyEntity(const EntitySnapshot& target, const EntitySnapshot* from, float alpha) const;
     WorldCaptureSettings m_settings{};
 };
