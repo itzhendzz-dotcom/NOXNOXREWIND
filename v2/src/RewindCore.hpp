@@ -13,10 +13,11 @@ namespace noxxa {
 class RewindAudio;
 
 struct RewindSettings {
-    float historySeconds{8.0f};
+    float historySeconds{13.25f};
     int snapshotHz{24};
-    float rewindSpeed{1.25f};
+    float rewindSpeed{1.0f};
     float quickSeconds{3.0f};
+    float maxRewindSeconds{13.003f};
     float radius{38.0f};
     int maxEntities{32};
     float rewindTimeScale{0.12f};
@@ -56,7 +57,7 @@ private:
     void UpdateVisualIntensity(double dt);
 
     RewindSettings m_settings{};
-    TimelineBuffer<WorldFrame> m_timeline{242};
+    TimelineBuffer<WorldFrame> m_timeline{322};
     WorldStateAdapter m_world{};
     RewindAudio* m_audio{nullptr};
     PlayerAnchor m_anchor{};
@@ -64,6 +65,7 @@ private:
     Clock::time_point m_lastTick{};
     double m_recordAccumulator{0.0};
     double m_rewindPhase{0.0};
+    double m_activeRewindSeconds{0.0};
     uint64_t m_sequence{0};
     std::size_t m_rewindStartCursor{0};
     double m_quickRemainingSeconds{0.0};
